@@ -1,10 +1,10 @@
 
 {
-  "name": "sabanour-net",
+  "name": "newray",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.5.0",
   "type": "module",
-  "homepage": "https://mechanicalh600-lang.github.io/Dastyar/",
+  "homepage": "https://mechanicalh600-lang.github.io/newray/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
-    base: '/Dastyar/', 
+    base: '/newray/', 
     define: {
       'process.env.API_KEY': JSON.stringify(apiKey),
     },
