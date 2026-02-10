@@ -1,0 +1,18 @@
+
+{
+  "short_name": "رای‌نو",
+  "name": "رای‌نو - دستیار هوشمند نت",
+  "icons": [
+    {
+      "src": "logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#800020",
+  "background_color": "#ffffff",
+  "orientation": "portrait"
+}

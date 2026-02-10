@@ -1,0 +1,7 @@
+
+{
+  "platform": "react",
+  "build": {
+    "output": "dist"
+  }
+}
