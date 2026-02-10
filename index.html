@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>رای‌نو</title>
+    <script>
+      // Recover route redirected by public/404.html on GitHub Pages.
+      (function() {
+        var redirect = window.location.search.match(/[?&]\/(.*)$/);
+        if (!redirect) return;
+
+        var path = redirect[1].replace(/~and~/g, '&');
+        var cleanUrl =
+          window.location.pathname.replace(/\/$/, '') +
+          '/' +
+          path.split('&')[0] +
+          (path.split('&')[1] ? '?' + path.split('&').slice(1).join('&') : '') +
+          window.location.hash;
+
+        window.history.replaceState(null, '', cleanUrl);
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#800020" />
