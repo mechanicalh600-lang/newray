@@ -185,8 +185,12 @@ export const ReportTemplatePreview: React.FC = () => {
 
   useEffect(() => {
     const loadLogo = async () => {
-      const { data } = await supabase.from('app_settings').select('org_logo').single();
-      setOrgLogo(data?.org_logo || null);
+      const { data } = await supabase
+        .from('app_settings')
+        .select('org_logo')
+        .order('created_at', { ascending: true })
+        .limit(1);
+      setOrgLogo((data && data[0]?.org_logo) || null);
     };
     loadLogo();
   }, []);

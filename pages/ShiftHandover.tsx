@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User } from '../types';
 import { 
@@ -14,7 +14,7 @@ import { DataPage } from '../components/DataPage';
 import * as XLSX from 'xlsx';
 
 import { 
-    PRODUCTION_TIMES, SHIFT_TYPE_MAP, parseTimeToMinutes,
+    getProductionTimes, SHIFT_TYPE_MAP, parseTimeToMinutes,
     AttendanceStatus, LeaveType, FeedInput, TABS
 } from './ShiftHandoverTypes';
 import { 
@@ -24,6 +24,7 @@ import {
 import { ShiftReportView } from './ShiftHandoverReport';
 import { supabase } from '../supabaseClient';
 import { openReportTemplatePreview } from '../utils/reportTemplateNavigation';
+import { ensureDefaultShiftReportTemplate } from '../services/reportTemplates';
 
 interface Props {
   user: User;
@@ -152,8 +153,10 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
   const [footer, setFooter] = useState({
       nextShiftActions: [''] as string[]
   });
+  const [validationTouched, setValidationTouched] = useState(false);
 
   useEffect(() => {
+      ensureDefaultShiftReportTemplate();
       fetchMasterData('personnel').then(setPersonnel);
       loadReports();
       fetchAdminAvatar();
@@ -194,6 +197,7 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
   };
 
   const isReadOnly = (viewMode === 'VIEW' && reportData) || (viewMode === 'FORM' && isFormViewOnly);
+  const productionTimes = useMemo(() => getProductionTimes(shiftInfo.type), [shiftInfo.type]);
 
   const checkTabValidity = (tabId: number): boolean => {
       if (isReadOnly) return true;
@@ -219,19 +223,45 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
       return true;
   };
 
+  const getValidationIssues = (): { tabId: number; message: string }[] => {
+      if (isReadOnly) return [];
+      const issues: { tabId: number; message: string }[] = [];
+      if (!shiftInfo.name) issues.push({ tabId: 1, message: 'شیفت انتخاب نشده است.' });
+      if (!shiftInfo.type) issues.push({ tabId: 1, message: 'نوبت کاری انتخاب نشده است.' });
+      if (!shiftInfo.date) issues.push({ tabId: 1, message: 'تاریخ شیفت وارد نشده است.' });
+      if (!shiftInfo.shiftDuration || parseTimeToMinutes(shiftInfo.shiftDuration) <= 0) {
+          issues.push({ tabId: 1, message: 'مدت شیفت معتبر نیست.' });
+      }
+      if (!Object.keys(attendanceMap).length) {
+          issues.push({ tabId: 1, message: 'حداقل وضعیت حضور یک نفر باید ثبت شود.' });
+      }
+      const shiftMins = parseTimeToMinutes(shiftInfo.shiftDuration);
+      const totalA = parseTimeToMinutes(downtime.lineA.workTime) + parseTimeToMinutes(downtime.lineA.stopTime);
+      const totalB = parseTimeToMinutes(downtime.lineB.workTime) + parseTimeToMinutes(downtime.lineB.stopTime);
+      if (shiftMins > 0 && (totalA !== shiftMins || totalB !== shiftMins)) {
+          issues.push({ tabId: 9, message: 'جمع کارکرد/توقف هر خط باید با مدت شیفت برابر باشد.' });
+      }
+      return issues;
+  };
+
+  const validationIssues = getValidationIssues();
+  const firstValidationIssue = validationIssues[0];
+
   // Helper functions for state updates (passed to tabs)
-  const handleTonnageChange = (line: 'lineA' | 'lineB', time: string, val: string) => {
-      if(isReadOnly) return;
-      const numVal = Number(val);
-      if (numVal < 0) return; 
-      const timeIndex = PRODUCTION_TIMES.indexOf(time);
+  const handleTonnageChange = (line: 'lineA' | 'lineB', time: string, timeIdx: number, val: string) => {
+      if (isReadOnly) return;
+      const numVal = Math.max(0, Number(val) || 0);
+      const timesToUpdate = productionTimes.slice(timeIdx);
       setProduction(prev => {
           const newLine = { ...prev[line] };
-          if (timeIndex !== -1) {
-              for(let i = timeIndex; i < PRODUCTION_TIMES.length; i++) {
-                  newLine[PRODUCTION_TIMES[i]] = numVal;
-              }
-          }
+          timesToUpdate.forEach(t => { newLine[t] = numVal; });
+          return { ...prev, [line]: newLine };
+      });
+      setFeedInfo(prev => {
+          const current = prev[line]?.[time];
+          if (!current) return prev;
+          const newLine = { ...prev[line] };
+          timesToUpdate.forEach(t => { newLine[t] = [...(current || [])]; });
           return { ...prev, [line]: newLine };
       });
   };
@@ -252,17 +282,80 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
           supervisorName: user.fullName 
       });
       setProduction({ lineA: {}, lineB: {} });
+      setFeedInfo({ lineA: {}, lineB: {} });
+      setFeedLinesActive({ lineA: true, lineB: true });
+      setBallMills({
+          lineA: {
+              primary: { active: false, amp08: '', amp02: '', dens08: '', dens02: '', ballSize: '', barrelCount: '', charges: [] as any[] },
+              secondary: { active: false, amp08: '', amp02: '', dens08: '', dens02: '', ballSize: '', barrelCount: '', charges: [] as any[] }
+          },
+          lineB: {
+               primary: { active: false, amp08: '', amp02: '', dens08: '', dens02: '', ballSize: '', barrelCount: '', charges: [] as any[] },
+               secondary: { active: false, amp08: '', amp02: '', dens08: '', dens02: '', ballSize: '', barrelCount: '', charges: [] as any[] }
+          }
+      });
+      setHydrocyclones({
+          lineA: {
+              primary: { active: false, activeCyclones: [] as number[], pressure08: '', angle08: '', pressure02: '', angle02: '' },
+              secondary: { active: false, activeCyclones: [] as number[], pressure08: '', angle08: '', pressure02: '', angle02: '' }
+          },
+          lineB: {
+              primary: { active: false, activeCyclones: [] as number[], pressure08: '', angle08: '', pressure02: '', angle02: '' },
+              secondary: { active: false, activeCyclones: [] as number[], pressure08: '', angle08: '', pressure02: '', angle02: '' }
+          }
+      });
+      setDrumMagnets({
+          lineA: { active: false, single: false, upper: false, middle: false, lower: false, description: '' },
+          lineB: { active: false, single: false, upper: false, middle: false, lower: false, description: '' }
+      });
+      setConcentrateFilters({
+          lineA: { active: false, operator: '', hours: '', cloths: [] as string[] },
+          lineB: { active: false, operator: '', hours: '', cloths: [] as string[] },
+          reserve: { active: false, operator: '', hours: '', cloths: [] as string[] }
+      });
+      setThickeners({
+          lineA: [
+              { active: false, hoursWorked: '', channelOutput: '', description: '', data: {} },
+              { active: false, hoursWorked: '', channelOutput: '', description: '', data: {} },
+              { active: false, hoursWorked: '', channelOutput: '', description: '', data: {} }
+          ],
+          lineB: [
+              { active: false, hoursWorked: '', channelOutput: '', description: '', data: {} },
+              { active: false, hoursWorked: '', channelOutput: '', description: '', data: {} },
+              { active: false, hoursWorked: '', channelOutput: '', description: '', data: {} }
+          ]
+      });
+      setRecoveryFilters({
+          lineA: [
+              { active: false, operator: '', hours: '', cloths: [] as string[] },
+              { active: false, operator: '', hours: '', cloths: [] as string[] }
+          ],
+          lineB: [
+              { active: false, operator: '', hours: '', cloths: [] as string[] },
+              { active: false, operator: '', hours: '', cloths: [] as string[] }
+          ]
+      });
+      setPumps({ process: [], cleanWater: [] });
       setDowntime({
           lineA: { workTime: '', stopTime: '', reason: '' },
           lineB: { workTime: '', stopTime: '', reason: '' },
           generalDescription: ['']
       });
       setAttendanceMap({});
+      setLeaveTypes({});
+      setFooter({ nextShiftActions: [''] });
+      setValidationTouched(false);
       setViewMode('FORM');
       setActiveTab(1);
   };
 
   const handleConfirmSubmit = async () => {
+      setValidationTouched(true);
+      if (validationIssues.length > 0) {
+          setActiveTab(firstValidationIssue?.tabId || 1);
+          alert(`فرم ناقص است:\n${validationIssues.map(v => `• ${v.message}`).join('\n')}`);
+          return;
+      }
       setIsSubmitting(true);
       try {
           const code = await fetchNextTrackingCode('T');
@@ -380,12 +473,105 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
   const handleDynamicListChange = (s:any, i:any, v:any) => { if(s==='downtime') setDowntime((p:any)=>{const l=[...p.generalDescription];l[i]=v;return {...p, generalDescription:l}}); else setFooter((p:any)=>{const l=[...p.nextShiftActions];l[i]=v;return {...p, nextShiftActions:l}}); };
   const addDynamicRecord = (s:any) => { if(s==='downtime') setDowntime((p:any)=>({...p, generalDescription:[...p.generalDescription, '']})); else setFooter((p:any)=>({...p, nextShiftActions:[...p.nextShiftActions, '']})); };
   const removeDynamicRecord = (s:any, i:any) => { if(s==='downtime') setDowntime((p:any)=>({...p, generalDescription:p.generalDescription.filter((_:any,x:any)=>x!==i)})); else setFooter((p:any)=>({...p, nextShiftActions:p.nextShiftActions.filter((_:any,x:any)=>x!==i)})); };
-  const handleFeedTypeChange = (l:any, t:any, f:any, v:any) => { /* simplified */ };
-  const handleCustomFeedType = (l:any, t:any, f:any, v:any) => { /* simplified */ };
-  const resetFeedType = (l:any, t:any, f:any) => { /* simplified */ };
-  const handleFeedPercentChange = (l:any, t:any, f:any, v:any) => { /* simplified */ };
-  const handleAddBallCharge = (l:any, m:any) => { /* simplified */ };
-  const handleRemoveBallCharge = (l:any, m:any, i:any) => { /* simplified */ };
+  const cascadeFeedToLater = (newLine: Record<string, any[]>, line: 'lineA' | 'lineB', fromTimeIdx: number, updatedFeed: any[]) => {
+      productionTimes.slice(fromTimeIdx).forEach(t => { newLine[t] = updatedFeed.map(f => ({ ...f })); });
+  };
+
+  const handleFeedTypeChange = (line: 'lineA' | 'lineB', timeIdx: number, feedIdx: number, value: string) => {
+      if (isReadOnly) return;
+      const time = productionTimes[timeIdx];
+      if (!time) return;
+      setFeedInfo(prev => {
+          const newLine = { ...prev[line] };
+          const current = newLine[time] || [{ type: '', percent: 0 }];
+          const arr = [...current];
+          while (arr.length <= feedIdx) arr.push({ type: '', percent: 0 });
+          arr[feedIdx] = { ...arr[feedIdx], type: value, isCustom: false };
+          newLine[time] = arr;
+          cascadeFeedToLater(newLine, line, timeIdx, arr);
+          return { ...prev, [line]: newLine };
+      });
+  };
+  const handleCustomFeedType = (line: 'lineA' | 'lineB', timeIdx: number, feedIdx: number, value: string) => {
+      if (isReadOnly) return;
+      const time = productionTimes[timeIdx];
+      if (!time) return;
+      setFeedInfo(prev => {
+          const newLine = { ...prev[line] };
+          const current = newLine[time] || [{ type: '', percent: 0 }];
+          const arr = [...current];
+          while (arr.length <= feedIdx) arr.push({ type: '', percent: 0 });
+          arr[feedIdx] = { ...arr[feedIdx], type: value, isCustom: true };
+          newLine[time] = arr;
+          cascadeFeedToLater(newLine, line, timeIdx, arr);
+          return { ...prev, [line]: newLine };
+      });
+  };
+  const resetFeedType = (line: 'lineA' | 'lineB', timeIdx: number, feedIdx: number) => {
+      if (isReadOnly) return;
+      const time = productionTimes[timeIdx];
+      if (!time) return;
+      setFeedInfo(prev => {
+          const newLine = { ...prev[line] };
+          const current = newLine[time] || [{ type: '', percent: 0 }];
+          const arr = [...current];
+          if (feedIdx < arr.length) arr[feedIdx] = { type: '', percent: 0, isCustom: false };
+          newLine[time] = arr;
+          cascadeFeedToLater(newLine, line, timeIdx, arr);
+          return { ...prev, [line]: newLine };
+      });
+  };
+  const handleFeedPercentChange = (line: 'lineA' | 'lineB', timeIdx: number, feedIdx: number, value: string) => {
+      if (isReadOnly) return;
+      const time = productionTimes[timeIdx];
+      if (!time) return;
+      setFeedInfo(prev => {
+          const newLine = { ...prev[line] };
+          const current = newLine[time] || [{ type: '', percent: 0 }];
+          const arr = [...current];
+          while (arr.length <= feedIdx) arr.push({ type: '', percent: 0 });
+          const sumOthers = arr.reduce((s: number, f: any, i: number) => i === feedIdx ? s : s + Number(f?.percent || 0), 0);
+          const maxAllowed = Math.max(1, 100 - sumOthers);
+          const raw = Number(value) || 0;
+          const numVal = Math.max(1, Math.min(100, Math.min(maxAllowed, raw)));
+          arr[feedIdx] = { ...arr[feedIdx], percent: numVal };
+          newLine[time] = arr;
+          cascadeFeedToLater(newLine, line, timeIdx, arr);
+          return { ...prev, [line]: newLine };
+      });
+  };
+  const handleAddBallCharge = (line: 'lineA' | 'lineB', millType: 'primary' | 'secondary') => {
+      if (isReadOnly) return;
+      const millData = ballMills[line][millType];
+      const size = Number(millData.ballSize);
+      const count = Number(millData.barrelCount);
+      if (!size || !count) return;
+      setBallMills(prev => ({
+          ...prev,
+          [line]: {
+              ...prev[line],
+              [millType]: {
+                  ...prev[line][millType],
+                  charges: [...prev[line][millType].charges, { size, count }],
+                  ballSize: '',
+                  barrelCount: ''
+              }
+          }
+      }));
+  };
+  const handleRemoveBallCharge = (line: 'lineA' | 'lineB', millType: 'primary' | 'secondary', idx: number) => {
+      if (isReadOnly) return;
+      setBallMills(prev => ({
+          ...prev,
+          [line]: {
+              ...prev[line],
+              [millType]: {
+                  ...prev[line][millType],
+                  charges: prev[line][millType].charges.filter((_: any, i: number) => i !== idx)
+              }
+          }
+      }));
+  };
 
   const filterContent = (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -462,13 +648,13 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
                       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
                           <div>
                               <label className="block text-xs font-bold mb-1">شیفت</label>
-                              <select value={shiftInfo.name} onChange={e => setShiftInfo({...shiftInfo, name: e.target.value})} className="w-full p-2.5 border rounded-xl dark:bg-gray-700 outline-none text-sm">
+                              <select disabled={isReadOnly} value={shiftInfo.name} onChange={e => setShiftInfo({...shiftInfo, name: e.target.value})} className="w-full p-2.5 border rounded-xl dark:bg-gray-700 outline-none text-sm disabled:opacity-60">
                                   {['A', 'B', 'C'].map(s => <option key={s} value={s}>شیفت {s}</option>)}
                               </select>
                           </div>
                           <div>
                               <label className="block text-xs font-bold mb-1">نوبت کاری</label>
-                              <select value={shiftInfo.type} onChange={e => setShiftInfo({...shiftInfo, type: e.target.value})} className="w-full p-2.5 border rounded-xl dark:bg-gray-700 outline-none text-sm">
+                              <select disabled={isReadOnly} value={shiftInfo.type} onChange={e => setShiftInfo({...shiftInfo, type: e.target.value})} className="w-full p-2.5 border rounded-xl dark:bg-gray-700 outline-none text-sm disabled:opacity-60">
                                   <option value="Day1">روز کار اول</option>
                                   <option value="Day2">روز کار دوم</option>
                                   <option value="Night1">شب کار اول</option>
@@ -478,7 +664,7 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
                           <div>
                               <div className="w-full">
                                   <label className="block text-xs font-black mb-1.5 text-gray-800 dark:text-white">مدت شیفت</label>
-                                  <ClockTimePicker value={shiftInfo.shiftDuration} onChange={t => setShiftInfo({...shiftInfo, shiftDuration: t})} />
+                                  <ClockTimePicker value={shiftInfo.shiftDuration} onChange={t => !isReadOnly && setShiftInfo({...shiftInfo, shiftDuration: t})} />
                               </div>
                           </div>
                           <div>
@@ -609,9 +795,28 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
               </div>
           )}
 
+          {validationTouched && validationIssues.length > 0 && (
+            <div className="p-3 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 text-sm">
+              <div className="font-bold mb-1">موارد نیازمند اصلاح</div>
+              <div className="flex flex-wrap gap-2">
+                {validationIssues.map((issue, idx) => (
+                  <button
+                    key={`${issue.tabId}-${idx}`}
+                    type="button"
+                    onClick={() => setActiveTab(issue.tabId)}
+                    className="px-2 py-1 rounded bg-white border border-amber-300 hover:bg-amber-100"
+                  >
+                    تب {issue.tabId}: {issue.message}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {activeTab === 2 && (
               <TabProduction 
-                  production={production} feedInfo={feedInfo} isReadOnly={false} 
+                  production={production} feedInfo={feedInfo} isReadOnly={isReadOnly}
+                  productionTimes={productionTimes}
                   handleTonnageChange={handleTonnageChange} 
                   handleFeedTypeChange={handleFeedTypeChange}
                   handleCustomFeedType={handleCustomFeedType}
@@ -621,13 +826,13 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
                   setFeedLinesActive={setFeedLinesActive}
               />
           )}
-          {activeTab === 3 && <TabMills ballMills={ballMills} setBallMills={setBallMills} isReadOnly={false} handleAddBallCharge={handleAddBallCharge} handleRemoveBallCharge={handleRemoveBallCharge} />}
-          {activeTab === 4 && <TabHydrocyclones hydrocyclones={hydrocyclones} setHydrocyclones={setHydrocyclones} isReadOnly={false} />}
-          {activeTab === 5 && <TabDrumMagnets drumMagnets={drumMagnets} setDrumMagnets={setDrumMagnets} isReadOnly={false} handleVoiceInputMultiline={handleVoiceInputMultiline} />}
-          {activeTab === 6 && <TabConcentrateFilters concentrateFilters={concentrateFilters} setConcentrateFilters={setConcentrateFilters} isReadOnly={false} validateDurationVsShift={validateDurationVsShift} personnel={personnel} attendanceMap={attendanceMap} />}
-          {activeTab === 7 && <TabThickeners thickeners={thickeners} setThickeners={setThickeners} isReadOnly={false} handleThickenerMetaChange={handleThickenerMetaChange} handleThickenerDataChange={handleThickenerDataChange} />}
-          {activeTab === 8 && <TabRecoveryFilters recoveryFilters={recoveryFilters} setRecoveryFilters={setRecoveryFilters} isReadOnly={false} validateDurationVsShift={validateDurationVsShift} personnel={personnel} attendanceMap={attendanceMap} />}
-          {activeTab === 9 && <TabDowntime downtime={downtime} setDowntime={setDowntime} footer={footer} setFooter={setFooter} pumps={pumps} setPumps={setPumps} isReadOnly={false} handleDowntimeChange={handleDowntimeChange} handleDynamicListChange={handleDynamicListChange} addDynamicRecord={addDynamicRecord} removeDynamicRecord={removeDynamicRecord} handleVoiceInputMultiline={handleVoiceInputMultiline} handleVoiceInputDynamic={handleVoiceInputDynamic} shiftDuration={shiftInfo.shiftDuration} />}
+          {activeTab === 3 && <TabMills ballMills={ballMills} setBallMills={setBallMills} isReadOnly={isReadOnly} handleAddBallCharge={handleAddBallCharge} handleRemoveBallCharge={handleRemoveBallCharge} />}
+          {activeTab === 4 && <TabHydrocyclones hydrocyclones={hydrocyclones} setHydrocyclones={setHydrocyclones} isReadOnly={isReadOnly} />}
+          {activeTab === 5 && <TabDrumMagnets drumMagnets={drumMagnets} setDrumMagnets={setDrumMagnets} isReadOnly={isReadOnly} handleVoiceInputMultiline={handleVoiceInputMultiline} />}
+          {activeTab === 6 && <TabConcentrateFilters concentrateFilters={concentrateFilters} setConcentrateFilters={setConcentrateFilters} isReadOnly={isReadOnly} validateDurationVsShift={validateDurationVsShift} personnel={personnel} attendanceMap={attendanceMap} />}
+          {activeTab === 7 && <TabThickeners thickeners={thickeners} setThickeners={setThickeners} isReadOnly={isReadOnly} handleThickenerMetaChange={handleThickenerMetaChange} handleThickenerDataChange={handleThickenerDataChange} />}
+          {activeTab === 8 && <TabRecoveryFilters recoveryFilters={recoveryFilters} setRecoveryFilters={setRecoveryFilters} isReadOnly={isReadOnly} validateDurationVsShift={validateDurationVsShift} personnel={personnel} attendanceMap={attendanceMap} />}
+          {activeTab === 9 && <TabDowntime downtime={downtime} setDowntime={setDowntime} footer={footer} setFooter={setFooter} pumps={pumps} setPumps={setPumps} isReadOnly={isReadOnly} handleDowntimeChange={handleDowntimeChange} handleDynamicListChange={handleDynamicListChange} addDynamicRecord={addDynamicRecord} removeDynamicRecord={removeDynamicRecord} handleVoiceInputMultiline={handleVoiceInputMultiline} handleVoiceInputDynamic={handleVoiceInputDynamic} shiftDuration={shiftInfo.shiftDuration} />}
 
           <div className="flex items-center justify-between pt-6 border-t dark:border-gray-700 pb-20">
               <button 

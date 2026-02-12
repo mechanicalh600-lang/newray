@@ -17,10 +17,23 @@ export interface BallCharge {
 }
 
 // --- Constants ---
-export const PRODUCTION_TIMES = [
+/** ساعات شیفت روزکار (۰۷:۳۰ تا ۱۸:۳۰) */
+export const DAY_PRODUCTION_TIMES = [
     "07:30", "08:30", "09:30", "10:30", "11:30", "12:30",
+    "13:30", "14:30", "15:30", "16:30", "17:30", "18:30"
+];
+/** ساعات شیفت شب‌کار (۱۹:۳۰ تا ۰۶:۳۰) */
+export const NIGHT_PRODUCTION_TIMES = [
+    "19:30", "20:30", "21:30", "22:30", "23:30", "00:30",
     "01:30", "02:30", "03:30", "04:30", "05:30", "06:30"
 ];
+
+/** ساعات بر اساس نوبت کاری: روزکار ۰۷:۳۰–۱۸:۳۰، شب‌کار ۱۹:۳۰–۰۶:۳۰ */
+export const getProductionTimes = (shiftType: string) =>
+    shiftType === 'Night1' || shiftType === 'Night2' ? NIGHT_PRODUCTION_TIMES : DAY_PRODUCTION_TIMES;
+
+/** @deprecated استفاده از getProductionTimes بر اساس نوبت کاری */
+export const PRODUCTION_TIMES = DAY_PRODUCTION_TIMES;
 
 export const THICKENER_TIMES = ["08:00", "11:00", "02:00", "05:00"];
 export const FEED_TYPES_OPTIONS = ["گلالی", "باباعلی", "شهرک", "چنار", "سایر"];

@@ -1,12 +1,13 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Menu, X, ChevronRight, LogOut, User as UserIcon, Moon, Sun, PanelRightClose, PanelRightOpen, ChevronDown, Bell, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Menu, X, ChevronRight, LogOut, User as UserIcon, Moon, Sun, PanelRightClose, PanelRightOpen, ChevronDown, Bell, CheckCircle, Clock, AlertTriangle, FileText } from 'lucide-react';
 import { MENU_ITEMS } from '../constants';
 import { User, Note } from '../types';
 import { getUnreadMessageCount, getUnreadCartableCount } from '../workflowStore';
 import { supabase } from '../supabaseClient';
 import { compareShamsiDateTime, getShamsiDate, getTime } from '../utils';
+import { getActiveReportDefinitions } from '../services/reportDefinitions';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -23,6 +24,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
   const [unreadCount, setUnreadCount] = useState(0);
   const [cartableUnreadCount, setCartableUnreadCount] = useState(0); // New State
   const [activeAlert, setActiveAlert] = useState<Note | null>(null);
+  const [dynamicReportSubmenu, setDynamicReportSubmenu] = useState<any[]>([]);
   
   // Exit Confirmation State
   const [showExitModal, setShowExitModal] = useState(false);
@@ -31,6 +33,39 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
   const location = useLocation();
 
   const isLoginPage = location.pathname === '/login';
+
+  useEffect(() => {
+    const loadDynamicReports = async () => {
+      const defs = await getActiveReportDefinitions();
+      const items = defs.map(def => ({
+        id: `dyn-${def.slug}`,
+        title: def.title,
+        icon: FileText,
+        path: `/reports/${def.slug}`,
+      }));
+      setDynamicReportSubmenu(items);
+    };
+
+    const handleReportDefsChanged = () => {
+      loadDynamicReports();
+    };
+
+    loadDynamicReports();
+    window.addEventListener('report-definitions-changed', handleReportDefsChanged as EventListener);
+    return () => window.removeEventListener('report-definitions-changed', handleReportDefsChanged as EventListener);
+  }, []);
+
+  const menuItems = useMemo(() => {
+    return MENU_ITEMS.map(item => {
+      if (item.id !== 'reports-group' || !item.submenu) return item;
+      const existingPaths = new Set(item.submenu.map(sub => sub.path));
+      const merged = [
+        ...item.submenu,
+        ...dynamicReportSubmenu.filter(sub => !existingPaths.has(sub.path)),
+      ];
+      return { ...item, submenu: merged };
+    });
+  }, [dynamicReportSubmenu]);
 
   // Reset sidebar state when user logs out or logs in
   useEffect(() => {
@@ -60,7 +95,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
 
   // Automatically expand menus if current path is inside them
   useEffect(() => {
-    MENU_ITEMS.forEach(item => {
+    menuItems.forEach(item => {
       if (item.submenu) {
         const hasActiveChild = item.submenu.some(sub => sub.path === location.pathname);
         if (hasActiveChild && !expandedMenus.includes(item.id)) {
@@ -68,7 +103,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
         }
       }
     });
-  }, [location.pathname]);
+  }, [location.pathname, menuItems]);
 
   // Poll for unread messages/cartable and Check Reminders
   useEffect(() => {
@@ -164,14 +199,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
     // Dynamic/detail routes should go to their logical list page.
     if (currentPath.startsWith('/work-orders/')) return '/work-orders';
     if (currentPath.startsWith('/admin/')) return '/admin';
+    if (currentPath.startsWith('/reports/')) return '/reports';
     if (currentPath.startsWith('/report-template-preview')) return '/';
 
     // If current page is a direct top-level menu item, go to dashboard.
-    const directItem = MENU_ITEMS.find(item => !item.submenu && item.path === currentPath);
+    const directItem = menuItems.find(item => !item.submenu && item.path === currentPath);
     if (directItem) return '/';
 
     // If current page is inside a group, go to that group's landing page.
-    const parentGroup = MENU_ITEMS.find(item => item.submenu?.some(sub => sub.path === currentPath));
+    const parentGroup = menuItems.find(item => item.submenu?.some(sub => sub.path === currentPath));
     if (parentGroup) {
       const groupLandingById: Record<string, string> = {
         'reports-group': '/',
@@ -332,7 +368,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
             `}
             title={isCollapsed ? user?.fullName : "تنظیمات کاربری"}
           >
-            <div className="w-10 h-10 min-w-[2.5rem] rounded-full bg-primary text-white flex items-center justify-center overflow-hidden border-2 border-transparent group-hover:border-primary transition-all shadow-sm">
+            <div className="w-10 h-10 min-w-[2.5rem] rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 flex items-center justify-center overflow-hidden border-2 border-gray-200 dark:border-gray-600 group-hover:border-primary transition-all shadow-sm">
                {user?.avatar ? <img src={user.avatar} alt="User" className="w-full h-full object-cover"/> : <UserIcon className="w-5 h-5" />}
             </div>
             
@@ -346,7 +382,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
 
           {/* Navigation Items */}
           <nav className="flex-1 overflow-y-auto py-4 overflow-x-hidden no-scrollbar">
-            {MENU_ITEMS.map((item) => {
+            {menuItems.map((item) => {
               if (item.id === 'settings') return null;
               if (item.role && user?.role !== item.role && user?.role !== 'ADMIN') return null;
               
@@ -475,7 +511,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
               </button>
             )}
             <h1 className="text-lg font-bold text-gray-800 dark:text-white truncate">
-                {MENU_ITEMS.flatMap(m => m.submenu ? m.submenu : m).find(m => m.path === location.pathname)?.title || (location.pathname === '/settings' ? 'تنظیمات' : 'رای‌نو')}
+                {menuItems.flatMap(m => (m.submenu ? m.submenu : m)).find(m => m.path === location.pathname)?.title || (location.pathname === '/settings' ? 'تنظیمات' : 'رای‌نو')}
             </h1>
           </div>
           

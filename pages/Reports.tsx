@@ -17,16 +17,30 @@ interface ColumnDef {
   visible: boolean;
 }
 
+type SourceHealth = {
+  status: 'checking' | 'ok' | 'error';
+  message?: string;
+};
+
 export const Reports: React.FC = () => {
   const [selectedSource, setSelectedSource] = useState<DataSource>('LOGINS');
   const [data, setData] = useState<any[]>([]);
   const [filteredData, setFilteredData] = useState<any[]>([]);
   const [columns, setColumns] = useState<ColumnDef[]>([]);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string>('');
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [isOptionsOpen, setIsOptionsOpen] = useState(true);
+  const [sourceHealth, setSourceHealth] = useState<Record<DataSource, SourceHealth>>({
+    LOGINS: { status: 'checking' },
+    WORK_ORDERS: { status: 'checking' },
+    PARTS: { status: 'checking' },
+    SHIFT_REPORTS: { status: 'checking' },
+    LAB_REPORTS: { status: 'checking' },
+    WAREHOUSE: { status: 'checking' },
+  });
 
   // Definition of available columns per source
   const sourceDefinitions: Record<DataSource, ColumnDef[]> = {
@@ -81,10 +95,42 @@ export const Reports: React.FC = () => {
     ]
   };
 
+  const getSourceLabel = (src: DataSource) => {
+    if (src === 'LOGINS') return 'لاگ‌های ورود و خروج';
+    if (src === 'WORK_ORDERS') return 'دستور کارها';
+    if (src === 'PARTS') return 'درخواست‌های قطعه';
+    if (src === 'SHIFT_REPORTS') return 'گزارشات شیفت';
+    if (src === 'LAB_REPORTS') return 'گزارشات آزمایشگاه';
+    return 'تراکنش‌های انبار';
+  };
+
+  const getStatusLamp = (src: DataSource) => {
+    const status = sourceHealth[src]?.status;
+    if (status === 'ok') return '🟢';
+    if (status === 'error') return '🔴';
+    return '🟡';
+  };
+
   useEffect(() => {
     loadData();
     setColumns(sourceDefinitions[selectedSource]);
   }, [selectedSource]);
+
+  useEffect(() => {
+    checkSourcesHealth();
+  }, []);
+
+  const normalizeDateTime = (item: any) => {
+    const raw =
+      item?.created_at ||
+      item?.createdAt ||
+      item?.timestamp ||
+      item?.at ||
+      (item?.date && item?.time ? `${item.date} ${item.time}` : item?.date || '');
+    if (!raw) return '';
+    const dt = new Date(raw);
+    return Number.isNaN(dt.getTime()) ? String(raw) : dt.toLocaleString('fa-IR');
+  };
 
   const getDeepValues = (obj: any): string => {
       if (obj === null || obj === undefined) return '';
@@ -108,91 +154,228 @@ export const Reports: React.FC = () => {
 
   const loadData = async () => {
     setLoading(true);
+    setErrorMsg('');
     let rawData: any[] = [];
     
     try {
         switch (selectedSource) {
           case 'LOGINS':
-            const { data: logs } = await supabase
+            // Fetch all columns for compatibility with old/new schema variants.
+            const { data: logs, error: logsError } = await supabase
                 .from('system_logs')
-                .select('user_name, personnel_code, action, created_at, ip_address, details')
-                .order('created_at', { ascending: false });
+                .select('*');
+            if (logsError) {
+              if (String(logsError.message || '').includes('relation') || logsError.code === '42P01') {
+                throw new Error('جدول system_logs در دیتابیس وجود ندارد. لطفا اسکریپت ساخت/مهاجرت لاگ‌ها را اجرا کنید.');
+              }
+              throw logsError;
+            }
             rawData = (logs || []).map(l => ({
-                ...l,
-                created_at: new Date(l.created_at).toLocaleString('fa-IR')
-            }));
+              user_name: l.user_name || l.userName || l.username || '-',
+              personnel_code: l.personnel_code || l.personnelCode || '-',
+              action: l.action || l.event || '-',
+              created_at: normalizeDateTime(l),
+              ip_address: l.ip_address || l.ip || '-',
+              details: l.details || l.description || '',
+            }))
+            .sort((a, b) => {
+              const ad = new Date(a.created_at).getTime();
+              const bd = new Date(b.created_at).getTime();
+              if (Number.isNaN(ad) && Number.isNaN(bd)) return 0;
+              if (Number.isNaN(ad)) return 1;
+              if (Number.isNaN(bd)) return -1;
+              return bd - ad;
+            });
             break;
 
           case 'WORK_ORDERS':
-            const { data: wos } = await supabase
+            {
+              const { data: wos, error: woError } = await supabase
+                  .from('work_orders')
+                  .select('tracking_code, request_date, requester_name, status, equipment_name, failure_description, created_at')
+                  .order('created_at', { ascending: false });
+
+              if (!woError) {
+                rawData = (wos || []).map((wo: any) => ({
+                  tracking_code: wo.tracking_code || '-',
+                  title: wo.equipment_name || '-',
+                  requester: wo.requester_name || '-',
+                  created_at: normalizeDateTime(wo) || wo.request_date || '-',
+                  status:
+                    wo.status === 'DONE' || wo.status === 'FINISHED'
+                      ? 'تکمیل شده'
+                      : wo.status === 'REQUEST'
+                      ? 'درخواست'
+                      : 'در حال انجام',
+                  equip_name: wo.equipment_name || '-',
+                  failure_desc: wo.failure_description || '-',
+                }));
+                break;
+              }
+
+              // Fallback for older deployments that stored work orders in cartable_items.
+              const { data: legacyWos, error: legacyWoError } = await supabase
                 .from('cartable_items')
                 .select('tracking_code, title, created_at, status, data')
                 .eq('module', 'WORK_ORDER')
                 .order('created_at', { ascending: false });
-            rawData = (wos || []).map(wo => {
+              if (legacyWoError) throw legacyWoError;
+              rawData = (legacyWos || []).map((wo: any) => {
                 const d = wo.data || {};
                 return {
-                    tracking_code: wo.tracking_code,
-                    title: wo.title,
-                    requester: d.requester || '-',
-                    created_at: new Date(wo.created_at).toLocaleDateString('fa-IR'),
-                    status: wo.status === 'DONE' ? 'تکمیل شده' : 'در حال انجام',
-                    equip_name: d.equipName || d.equipLocalName || '-',
-                    failure_desc: d.failureDesc || '-'
+                  tracking_code: wo.tracking_code,
+                  title: wo.title,
+                  requester: d.requester || '-',
+                  created_at: normalizeDateTime(wo),
+                  status: wo.status === 'DONE' ? 'تکمیل شده' : 'در حال انجام',
+                  equip_name: d.equipName || d.equipLocalName || '-',
+                  failure_desc: d.failureDesc || '-'
                 };
-            });
+              });
+            }
             break;
 
           case 'PARTS':
-            const { data: parts } = await supabase
+            const { data: parts, error: partsError } = await supabase
                 .from('part_requests')
                 .select('tracking_code, requester_name, request_date, description, work_order_code, status')
                 .order('created_at', { ascending: false });
+            if (partsError) throw partsError;
             rawData = (parts || []).map(p => ({
                 ...p,
-                status: p.status === 'PENDING' ? 'در انتظار تایید' : 'تایید شده'
+                status:
+                  p.status === 'PENDING'
+                    ? 'در انتظار تایید'
+                    : p.status === 'REJECTED'
+                    ? 'رد شده'
+                    : 'تایید شده'
             }));
             break;
 
           case 'SHIFT_REPORTS':
-            const { data: shifts } = await supabase
+            const { data: shifts, error: shiftError } = await supabase
                 .from('shift_reports')
                 .select('tracking_code, shift_date, shift_name, supervisor_name, total_production_a, total_production_b')
                 .order('created_at', { ascending: false });
+            if (shiftError) throw shiftError;
             rawData = shifts || [];
             break;
 
           case 'LAB_REPORTS':
-            const { data: labs } = await supabase
+            const { data: labs, error: labsError } = await supabase
                 .from('lab_reports')
                 .select('tracking_code, report_date, sample_code, fe_percent, feo_percent, s_percent')
                 .order('created_at', { ascending: false });
+            if (labsError) throw labsError;
             rawData = labs || [];
             break;
 
           case 'WAREHOUSE':
-            const { data: warehouse } = await supabase
+            const { data: warehouse, error: warehouseError } = await supabase
                 .from('warehouse_reports')
                 .select('tracking_code, report_date, type, qty, receiver_name, parts(name)')
                 .order('created_at', { ascending: false });
+            // Fallback if relation to parts is not available in current DB metadata.
+            if (warehouseError) {
+              const { data: simpleWarehouse, error: simpleWarehouseError } = await supabase
+                .from('warehouse_reports')
+                .select('tracking_code, report_date, type, qty, receiver_name')
+                .order('created_at', { ascending: false });
+              if (simpleWarehouseError) throw simpleWarehouseError;
+              rawData = (simpleWarehouse || []).map((w: any) => ({
+                tracking_code: w.tracking_code,
+                report_date: w.report_date,
+                type: w.type === 'ENTRY' ? 'ورود' : w.type === 'EXIT' ? 'خروج' : w.type || '-',
+                qty: w.qty,
+                receiver_name: w.receiver_name,
+                part_name: '---',
+              }));
+              break;
+            }
             rawData = (warehouse || []).map((w: any) => ({
                 tracking_code: w.tracking_code,
                 report_date: w.report_date,
-                type: w.type === 'ENTRY' ? 'ورود' : 'خروج',
+                type: w.type === 'ENTRY' ? 'ورود' : w.type === 'EXIT' ? 'خروج' : w.type || '-',
                 qty: w.qty,
                 receiver_name: w.receiver_name,
                 part_name: w.parts?.name || '---'
             }));
             break;
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error fetching report data:", error);
+        setErrorMsg(error?.message || 'خطا در دریافت اطلاعات گزارش');
+        rawData = [];
     } finally {
         setLoading(false);
     }
 
     setData(rawData);
     setFilteredData(rawData);
+  };
+
+  const probeSourceHealth = async (source: DataSource): Promise<SourceHealth> => {
+    try {
+      switch (source) {
+        case 'LOGINS': {
+          const { error } = await supabase.from('system_logs').select('*').limit(1);
+          if (error) throw error;
+          return { status: 'ok' };
+        }
+        case 'WORK_ORDERS': {
+          const { error } = await supabase.from('work_orders').select('id').limit(1);
+          if (error) {
+            const { error: legacyError } = await supabase.from('cartable_items').select('id').eq('module', 'WORK_ORDER').limit(1);
+            if (legacyError) throw legacyError;
+          }
+          return { status: 'ok' };
+        }
+        case 'PARTS': {
+          const { error } = await supabase.from('part_requests').select('id').limit(1);
+          if (error) throw error;
+          return { status: 'ok' };
+        }
+        case 'SHIFT_REPORTS': {
+          const { error } = await supabase.from('shift_reports').select('id').limit(1);
+          if (error) throw error;
+          return { status: 'ok' };
+        }
+        case 'LAB_REPORTS': {
+          const { error } = await supabase.from('lab_reports').select('id').limit(1);
+          if (error) throw error;
+          return { status: 'ok' };
+        }
+        case 'WAREHOUSE': {
+          const { error } = await supabase.from('warehouse_reports').select('id').limit(1);
+          if (error) throw error;
+          return { status: 'ok' };
+        }
+        default:
+          return { status: 'error', message: 'Unknown source' };
+      }
+    } catch (err: any) {
+      return { status: 'error', message: err?.message || 'خطای اتصال' };
+    }
+  };
+
+  const checkSourcesHealth = async () => {
+    setSourceHealth({
+      LOGINS: { status: 'checking' },
+      WORK_ORDERS: { status: 'checking' },
+      PARTS: { status: 'checking' },
+      SHIFT_REPORTS: { status: 'checking' },
+      LAB_REPORTS: { status: 'checking' },
+      WAREHOUSE: { status: 'checking' },
+    });
+    const sources: DataSource[] = ['LOGINS', 'WORK_ORDERS', 'PARTS', 'SHIFT_REPORTS', 'LAB_REPORTS', 'WAREHOUSE'];
+    const results = await Promise.all(sources.map(async (s) => ({ source: s, health: await probeSourceHealth(s) })));
+    setSourceHealth((prev) => {
+      const next = { ...prev };
+      results.forEach(({ source, health }) => {
+        next[source] = health;
+      });
+      return next;
+    });
   };
 
   const toggleColumn = (colId: string) => {
@@ -248,6 +431,11 @@ export const Reports: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20">
+      {errorMsg && (
+        <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm">
+          {errorMsg}
+        </div>
+      )}
       
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="flex items-center gap-2">
@@ -277,12 +465,11 @@ export const Reports: React.FC = () => {
                             onChange={(e) => setSelectedSource(e.target.value as DataSource)}
                             className="w-full p-2.5 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg outline-none text-sm"
                           >
-                              <option value="LOGINS">لاگ‌های ورود و خروج</option>
-                              <option value="WORK_ORDERS">دستور کارها</option>
-                              <option value="PARTS">درخواست‌های قطعه</option>
-                              <option value="SHIFT_REPORTS">گزارشات شیفت</option>
-                              <option value="LAB_REPORTS">گزارشات آزمایشگاه</option>
-                              <option value="WAREHOUSE">تراکنش‌های انبار</option>
+                              {(Object.keys(sourceDefinitions) as DataSource[]).map((src) => (
+                                <option key={src} value={src}>
+                                  {`${getStatusLamp(src)} ${getSourceLabel(src)}`}
+                                </option>
+                              ))}
                           </select>
                       </div>
 
@@ -311,7 +498,10 @@ export const Reports: React.FC = () => {
                       </div>
                       
                       <div className="flex gap-2">
-                          <button onClick={loadData} className="flex-1 py-2 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-100 transition text-sm font-bold">
+                          <button
+                            onClick={async () => { await checkSourcesHealth(); await loadData(); }}
+                            className="flex-1 py-2 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-100 transition text-sm font-bold"
+                          >
                               <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> بروزرسانی
                           </button>
                           <button onClick={handleExport} className="flex-1 py-2 bg-green-50 text-green-600 rounded-lg flex items-center justify-center gap-2 hover:bg-green-100 transition text-sm font-bold">

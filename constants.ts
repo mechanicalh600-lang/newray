@@ -1,5 +1,5 @@
 
-import { BarChart3, Wrench, Package, ClipboardCheck, Archive, Users, Settings, ShoppingCart, Lightbulb, FileSignature, Inbox, Briefcase, Award, GitMerge, ListChecks, MessageSquare, PieChart, Clipboard, Files, ChevronDown, StickyNote, Factory, CalendarRange, Monitor, FlaskConical, Warehouse, Scale, ShieldCheck, Cog, FileText, Timer, GraduationCap, LineChart, Database, BookOpen, LayoutDashboard, HardHat, List, FolderOpen, Sliders, LayoutTemplate } from 'lucide-react';
+import { BarChart3, Wrench, Package, ClipboardCheck, Archive, Users, Settings, ShoppingCart, Lightbulb, FileSignature, Inbox, Briefcase, Award, GitMerge, ListChecks, MessageSquare, PieChart, Clipboard, Files, ChevronDown, StickyNote, Factory, CalendarRange, Monitor, FlaskConical, Warehouse, Scale, ShieldCheck, Cog, FileText, Timer, GraduationCap, LineChart, Database, BookOpen, LayoutDashboard, HardHat, List, FolderOpen, Sliders, LayoutTemplate, FileSpreadsheet, AlertTriangle, History, FormInput } from 'lucide-react';
 import { ORDERED_TABS, TABLE_LABELS } from './pages/admin/adminConfig';
 
 export const APP_VERSION = "2.9.2";
@@ -124,6 +124,10 @@ export const MENU_ITEMS = [
       { id: 'app-config', title: 'تنظیمات نرم‌افزار', icon: Sliders, path: '/system-config' },
       { id: 'workflow', title: 'طراحی فرآیند', icon: GitMerge, path: '/workflow-designer' },
       { id: 'report-template-design', title: 'طراحی قالب گزارش', icon: LayoutTemplate, path: '/report-template-design' },
+      { id: 'report-form-design', title: 'طراحی فرم گزارش', icon: FormInput, path: '/report-form-design' },
+      { id: 'import-tool-settings', title: 'تنظیمات ابزار ورود اطلاعات', icon: FileSpreadsheet, path: '/data-entry-tool-settings' },
+      { id: 'software-errors', title: 'خطاهای نرم‌افزار', icon: AlertTriangle, path: '/software-errors' },
+      { id: 'data-change-tracking', title: 'ردیابی تغییرات اطلاعات', icon: History, path: '/data-change-tracking' },
       { id: 'integration', title: 'یکپارچه‌سازی (API)', icon: Database, path: '/integration' },
     ]
   },

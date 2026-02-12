@@ -7,7 +7,7 @@ import {
   ImageIcon, Grid, ChevronLeft, AlignCenter, 
   AlignLeft, AlignRight, X, FileText, Monitor, Factory,
   Palette, Upload, Bold, Italic, Underline, LineChart as LineChartIcon, Sigma,
-  ChevronUp, ChevronDown, Undo2, Redo2, Copy, Lock, Unlock, Download
+  ChevronUp, ChevronDown, Undo2, Redo2, Copy, Lock, Unlock, Download, Layers, Ruler, Magnet
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -21,8 +21,10 @@ import {
   getActiveReportTemplateByModule,
   saveReportTemplate,
   setActiveTemplate,
-  deleteTemplateVersion
+  deleteTemplateVersion,
+  ensureDefaultShiftReportTemplate
 } from '../services/reportTemplates';
+import { getAllReportDefinitions } from '../services/reportDefinitions';
 
 // --- Types ---
 
@@ -185,7 +187,7 @@ const TABLE_COLUMNS: Record<DataSource, string[]> = {
     personnel: ['id', 'full_name', 'unit', 'personnel_code'],
 };
 const reportsGroup = MENU_ITEMS.find(item => item.id === 'reports-group');
-const REPORT_MODULES = reportsGroup?.submenu ? reportsGroup.submenu.map(item => ({
+const BASE_REPORT_MODULES = reportsGroup?.submenu ? reportsGroup.submenu.map(item => ({
     id: item.id,
     label: item.title,
 })) : [];
@@ -197,6 +199,9 @@ const GOVERNANCE_ROLE_OPTIONS = ['factory_manager', 'production_manager', 'maint
 export const ReportTemplateDesign: React.FC = () => {
   const [mainTab, setMainTab] = useState<'DESIGN' | 'MANAGE'>('DESIGN');
   const [allTemplates, setAllTemplates] = useState<any[]>([]);
+  const [collapsedModules, setCollapsedModules] = useState<Record<string, boolean>>({});
+  const [dynamicModules, setDynamicModules] = useState<{ id: string; label: string }[]>([]);
+  const [expandedTemplateDetails, setExpandedTemplateDetails] = useState<Record<string, boolean>>({});
   const [template, setTemplate] = useState<ReportTemplate>({
     id: 'new',
     title: 'قالب گزارش تولید روزانه',
@@ -238,6 +243,31 @@ export const ReportTemplateDesign: React.FC = () => {
   const [enableSnap, setEnableSnap] = useState(true);
   const [showRuler, setShowRuler] = useState(false);
   const [showLayers, setShowLayers] = useState(true);
+  const [collapsedToolGroups, setCollapsedToolGroups] = useState<Record<'base' | 'data' | 'charts', boolean>>({
+    base: true,
+    data: true,
+    charts: true,
+  });
+  const [collapsedSettingsGroups, setCollapsedSettingsGroups] = useState<
+    Record<'datasets' | 'params' | 'page' | 'governance', boolean>
+  >({
+    datasets: true,
+    params: true,
+    page: true,
+    governance: true,
+  });
+  const [collapsedPropertyGroups, setCollapsedPropertyGroups] = useState<Record<string, boolean>>({
+    layout: true,
+    appearance: true,
+    dataSource: true,
+    header: true,
+    text: true,
+    image: true,
+    stat: true,
+    table: true,
+    chart: true,
+    actions: true,
+  });
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importTemplateInputRef = useRef<HTMLInputElement>(null);
@@ -268,8 +298,38 @@ export const ReportTemplateDesign: React.FC = () => {
 
   const refreshTemplates = () => setAllTemplates(getAllReportTemplates());
 
+  const moduleOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    BASE_REPORT_MODULES.forEach(m => map.set(m.id, m.label));
+    dynamicModules.forEach(m => map.set(m.id, m.label));
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
+  }, [dynamicModules]);
+
   const getModuleLabel = (moduleId: string) => {
-    return REPORT_MODULES.find(m => m.id === moduleId)?.label || moduleId;
+    return moduleOptions.find(m => m.id === moduleId)?.label || moduleId;
+  };
+
+  const setAllRightPanelGroupsCollapsed = (collapsed: boolean) => {
+    setCollapsedSettingsGroups({
+      datasets: collapsed,
+      params: collapsed,
+      page: collapsed,
+      governance: collapsed,
+    });
+    setCollapsedPropertyGroups(prev => {
+      const next: Record<string, boolean> = {};
+      Object.keys(prev).forEach((key) => {
+        next[key] = collapsed;
+      });
+      return next;
+    });
+  };
+
+  const formatDateTime = (raw?: string) => {
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    return dt.toLocaleString('fa-IR');
   };
 
   const createDefaultTemplateForModule = (moduleId: string): ReportTemplate => ({
@@ -327,6 +387,23 @@ export const ReportTemplateDesign: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const loadDynamicModules = async () => {
+      const defs = await getAllReportDefinitions();
+      setDynamicModules(
+        defs.map(d => ({
+          id: d.slug,
+          label: d.title,
+        }))
+      );
+    };
+    const onChanged = () => loadDynamicModules();
+    loadDynamicModules();
+    window.addEventListener('report-definitions-changed', onChanged as EventListener);
+    return () => window.removeEventListener('report-definitions-changed', onChanged as EventListener);
+  }, []);
+
+  useEffect(() => {
+    ensureDefaultShiftReportTemplate();
     refreshTemplates();
     loadTemplateForModule('productionreport');
   }, []);
@@ -484,13 +561,38 @@ export const ReportTemplateDesign: React.FC = () => {
       });
   };
 
-  const handleSaveTemplate = () => {
+  const handleSaveTemplate = async () => {
+    const currentUserRaw = localStorage.getItem('currentUser');
+    let currentUser: any = null;
+    try {
+      currentUser = currentUserRaw ? JSON.parse(currentUserRaw) : null;
+    } catch {
+      currentUser = null;
+    }
+    const creatorName = currentUser?.fullName || currentUser?.username || 'سیستم';
+    const creatorUsername = currentUser?.username || undefined;
+
     const saved = saveReportTemplate({
       id: '',
       title: template.title,
       targetModule: template.targetModule,
       elements: template.elements
-    } as any, { activate: true });
+    } as any, { activate: true, createdBy: creatorName, createdByUsername: creatorUsername });
+
+    try {
+      await supabase
+        .from('report_definitions')
+        .update({
+          template_schema: {
+            moduleId: template.targetModule,
+            linkedTemplateId: saved.id,
+            linkedTemplateVersion: saved.version,
+          },
+        })
+        .eq('slug', template.targetModule);
+    } catch {
+      // keep UX stable; template local save already completed
+    }
 
     setTemplate(saved as any);
     setSelectedElementId(saved.elements?.[0]?.id || null);
@@ -614,14 +716,14 @@ export const ReportTemplateDesign: React.FC = () => {
   };
 
   const groupedTemplates = useMemo(() => {
-    return REPORT_MODULES.map(m => ({
+    return moduleOptions.map(m => ({
       moduleId: m.id,
       moduleLabel: m.label,
       items: allTemplates
         .filter(t => t.targetModule === m.id)
         .sort((a, b) => (b.version || 0) - (a.version || 0))
     }));
-  }, [allTemplates]);
+  }, [allTemplates, moduleOptions]);
   
   const handleReorderDetail = (index: number, direction: 'UP' | 'DOWN') => {
     if (!selectedElement || !selectedElement.props.detailsProps) return;
@@ -935,107 +1037,155 @@ export const ReportTemplateDesign: React.FC = () => {
   };
 
   const renderTemplateSettings = () => {
+    const toggleSettingsGroup = (key: 'datasets' | 'params' | 'page' | 'governance') => {
+      setCollapsedSettingsGroups(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
     return (
       <div className="space-y-4 border-b pb-4 mb-4">
         <div className="space-y-2">
-          <h4 className="font-bold text-xs text-gray-500 uppercase">Data Model / Dataset Builder</h4>
-          <button onClick={addDataset} className="w-full text-xs py-1.5 rounded bg-blue-50 text-blue-700">+ Dataset جدید</button>
-          <div className="space-y-2 max-h-60 overflow-y-auto">
-            {(template.datasets || []).map(ds => (
-              <div key={ds.id} className="border rounded p-2 space-y-2 bg-gray-50">
-                <div className="flex items-center gap-2">
-                  <input className="flex-1 p-1 border rounded text-xs ltr text-left" value={ds.id} onChange={e => updateDataset(ds.id, { id: e.target.value })} />
-                  <button onClick={() => removeDataset(ds.id)} className="text-xs text-red-600">حذف</button>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <select className="p-1 border rounded text-xs" value={ds.source} onChange={e => updateDataset(ds.id, { source: e.target.value })}>
-                    {Object.keys(TABLE_COLUMNS).map(src => <option key={src} value={src}>{src}</option>)}
-                  </select>
-                  <input className="p-1 border rounded text-xs ltr text-left" placeholder="alias" value={ds.alias || ''} onChange={e => updateDataset(ds.id, { alias: e.target.value })} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input className="p-1 border rounded text-xs ltr text-left" placeholder="masterDatasetId" value={ds.masterDatasetId || ''} onChange={e => updateDataset(ds.id, { masterDatasetId: e.target.value || undefined })} />
-                  <input className="p-1 border rounded text-xs ltr text-left" placeholder="relationField" value={ds.relationField || ''} onChange={e => updateDataset(ds.id, { relationField: e.target.value || undefined })} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input className="p-1 border rounded text-xs ltr text-left" placeholder="Group field" value={ds.groupBy?.[0]?.field || ''} onChange={e => updateDataset(ds.id, { groupBy: e.target.value ? [{ field: e.target.value }] : [] })} />
-                  <input className="p-1 border rounded text-xs ltr text-left" placeholder="Sort field" value={ds.sort?.[0]?.field || ''} onChange={e => updateDataset(ds.id, { sort: e.target.value ? [{ field: e.target.value, direction: ds.sort?.[0]?.direction || 'desc' }] : [] })} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <select className="p-1 border rounded text-xs" value={ds.sort?.[0]?.direction || 'desc'} onChange={e => updateDataset(ds.id, { sort: ds.sort?.[0]?.field ? [{ field: ds.sort[0].field, direction: e.target.value as 'asc' | 'desc' }] : [] })}>
-                    <option value="desc">Sort Desc</option>
-                    <option value="asc">Sort Asc</option>
-                  </select>
-                  <input className="p-1 border rounded text-xs ltr text-left" placeholder="Calculated: KPI = expr" value={ds.calculatedFields?.[0] ? `${ds.calculatedFields[0].key}=${ds.calculatedFields[0].expression}` : ''} onChange={e => {
-                    const raw = e.target.value;
-                    const [key, ...rest] = raw.split('=');
-                    updateDataset(ds.id, { calculatedFields: key && rest.length ? [{ key: key.trim(), expression: rest.join('=').trim() }] : [] });
-                  }} />
-                </div>
+          <button
+            type="button"
+            onClick={() => toggleSettingsGroup('datasets')}
+            className="w-full flex items-center justify-between px-2 py-1 rounded text-xs font-bold text-gray-500 uppercase bg-gray-50 hover:bg-gray-100"
+          >
+            <span>مدل داده و دیتاست</span>
+            {collapsedSettingsGroups.datasets ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+          </button>
+          {!collapsedSettingsGroups.datasets && (
+            <>
+              <button onClick={addDataset} className="w-full text-xs py-1.5 rounded bg-blue-50 text-blue-700">+ Dataset جدید</button>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {(template.datasets || []).map(ds => (
+                  <div key={ds.id} className="border rounded p-2 space-y-2 bg-gray-50">
+                    <div className="flex items-center gap-2">
+                      <input className="flex-1 p-1 border rounded text-xs ltr text-left" value={ds.id} onChange={e => updateDataset(ds.id, { id: e.target.value })} />
+                      <button onClick={() => removeDataset(ds.id)} className="text-xs text-red-600">حذف</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select className="p-1 border rounded text-xs" value={ds.source} onChange={e => updateDataset(ds.id, { source: e.target.value })}>
+                        {Object.keys(TABLE_COLUMNS).map(src => <option key={src} value={src}>{src}</option>)}
+                      </select>
+                      <input className="p-1 border rounded text-xs ltr text-left" placeholder="نام مستعار (alias)" value={ds.alias || ''} onChange={e => updateDataset(ds.id, { alias: e.target.value })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input className="p-1 border rounded text-xs ltr text-left" placeholder="شناسه دیتاست مرجع" value={ds.masterDatasetId || ''} onChange={e => updateDataset(ds.id, { masterDatasetId: e.target.value || undefined })} />
+                      <input className="p-1 border rounded text-xs ltr text-left" placeholder="فیلد ارتباط" value={ds.relationField || ''} onChange={e => updateDataset(ds.id, { relationField: e.target.value || undefined })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input className="p-1 border rounded text-xs ltr text-left" placeholder="فیلد گروه‌بندی" value={ds.groupBy?.[0]?.field || ''} onChange={e => updateDataset(ds.id, { groupBy: e.target.value ? [{ field: e.target.value }] : [] })} />
+                      <input className="p-1 border rounded text-xs ltr text-left" placeholder="فیلد مرتب‌سازی" value={ds.sort?.[0]?.field || ''} onChange={e => updateDataset(ds.id, { sort: e.target.value ? [{ field: e.target.value, direction: ds.sort?.[0]?.direction || 'desc' }] : [] })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select className="p-1 border rounded text-xs" value={ds.sort?.[0]?.direction || 'desc'} onChange={e => updateDataset(ds.id, { sort: ds.sort?.[0]?.field ? [{ field: ds.sort[0].field, direction: e.target.value as 'asc' | 'desc' }] : [] })}>
+                        <option value="desc">مرتب‌سازی نزولی</option>
+                        <option value="asc">مرتب‌سازی صعودی</option>
+                      </select>
+                      <input className="p-1 border rounded text-xs ltr text-left" placeholder="فیلد محاسباتی: KPI = expr" value={ds.calculatedFields?.[0] ? `${ds.calculatedFields[0].key}=${ds.calculatedFields[0].expression}` : ''} onChange={e => {
+                        const raw = e.target.value;
+                        const [key, ...rest] = raw.split('=');
+                        updateDataset(ds.id, { calculatedFields: key && rest.length ? [{ key: key.trim(), expression: rest.join('=').trim() }] : [] });
+                      }} />
+                    </div>
+                  </div>
+                ))}
+                {!(template.datasets || []).length && <div className="text-[11px] text-gray-400 text-center py-2">دیتاستی تعریف نشده است.</div>}
               </div>
-            ))}
-            {!(template.datasets || []).length && <div className="text-[11px] text-gray-400 text-center py-2">دیتاستی تعریف نشده است.</div>}
-          </div>
+            </>
+          )}
         </div>
 
         <div className="space-y-2">
-          <h4 className="font-bold text-xs text-gray-500 uppercase">Runtime Parameters</h4>
-          <button onClick={addRuntimeParameter} className="w-full text-xs py-1.5 rounded bg-emerald-50 text-emerald-700">+ پارامتر جدید</button>
-          <div className="space-y-1 max-h-44 overflow-y-auto">
-            {(template.parameters || []).map(p => (
-              <div key={p.id} className="grid grid-cols-12 gap-1">
-                <input className="col-span-3 p-1 border rounded text-xs ltr text-left" value={p.key} onChange={e => updateRuntimeParameter(p.id, { key: e.target.value })} />
-                <input className="col-span-4 p-1 border rounded text-xs" value={p.label} onChange={e => updateRuntimeParameter(p.id, { label: e.target.value })} />
-                <select className="col-span-3 p-1 border rounded text-xs" value={p.type} onChange={e => updateRuntimeParameter(p.id, { type: e.target.value })}>
-                  <option value="text">text</option><option value="number">number</option><option value="date">date</option><option value="boolean">boolean</option><option value="select">select</option>
+          <button
+            type="button"
+            onClick={() => toggleSettingsGroup('params')}
+            className="w-full flex items-center justify-between px-2 py-1 rounded text-xs font-bold text-gray-500 uppercase bg-gray-50 hover:bg-gray-100"
+          >
+            <span>پارامترهای زمان اجرا</span>
+            {collapsedSettingsGroups.params ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+          </button>
+          {!collapsedSettingsGroups.params && (
+            <>
+              <button onClick={addRuntimeParameter} className="w-full text-xs py-1.5 rounded bg-emerald-50 text-emerald-700">+ پارامتر جدید</button>
+              <div className="space-y-1 max-h-44 overflow-y-auto">
+                {(template.parameters || []).map(p => (
+                  <div key={p.id} className="grid grid-cols-12 gap-1">
+                    <input className="col-span-3 p-1 border rounded text-xs ltr text-left" value={p.key} onChange={e => updateRuntimeParameter(p.id, { key: e.target.value })} />
+                    <input className="col-span-4 p-1 border rounded text-xs" value={p.label} onChange={e => updateRuntimeParameter(p.id, { label: e.target.value })} />
+                    <select className="col-span-3 p-1 border rounded text-xs" value={p.type} onChange={e => updateRuntimeParameter(p.id, { type: e.target.value })}>
+                      <option value="text">متن</option><option value="number">عدد</option><option value="date">تاریخ</option><option value="boolean">بله/خیر</option><option value="select">لیست انتخاب</option>
+                    </select>
+                    <button className="col-span-2 text-xs text-red-600" onClick={() => removeRuntimeParameter(p.id)}>حذف</button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => toggleSettingsGroup('page')}
+            className="w-full flex items-center justify-between px-2 py-1 rounded text-xs font-bold text-gray-500 uppercase bg-gray-50 hover:bg-gray-100"
+          >
+            <span>تنظیمات صفحه</span>
+            {collapsedSettingsGroups.page ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+          </button>
+          {!collapsedSettingsGroups.page && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <select className="p-1 border rounded text-xs" value={template.pageSettings?.size || 'A4'} onChange={e => setTemplate(prev => ({ ...prev, pageSettings: { ...(prev.pageSettings as any), size: e.target.value as any } }))}>
+                  <option value="A4">A4</option><option value="A3">A3</option><option value="Letter">Letter</option>
                 </select>
-                <button className="col-span-2 text-xs text-red-600" onClick={() => removeRuntimeParameter(p.id)}>حذف</button>
+                <select className="p-1 border rounded text-xs" value={template.pageSettings?.orientation || 'portrait'} onChange={e => setTemplate(prev => ({ ...prev, pageSettings: { ...(prev.pageSettings as any), orientation: e.target.value as any } }))}>
+                  <option value="portrait">عمودی</option><option value="landscape">افقی</option>
+                </select>
+                {(['marginTop', 'marginRight', 'marginBottom', 'marginLeft'] as const).map(key => (
+                  <input key={key} className="p-1 border rounded text-xs" type="number" value={(template.pageSettings as any)?.[key] ?? 12} onChange={e => setTemplate(prev => ({ ...prev, pageSettings: { ...(prev.pageSettings as any), [key]: Number(e.target.value) || 0 } }))} placeholder={key} />
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <h4 className="font-bold text-xs text-gray-500 uppercase">Page Settings</h4>
-          <div className="grid grid-cols-2 gap-2">
-            <select className="p-1 border rounded text-xs" value={template.pageSettings?.size || 'A4'} onChange={e => setTemplate(prev => ({ ...prev, pageSettings: { ...(prev.pageSettings as any), size: e.target.value as any } }))}>
-              <option value="A4">A4</option><option value="A3">A3</option><option value="Letter">Letter</option>
-            </select>
-            <select className="p-1 border rounded text-xs" value={template.pageSettings?.orientation || 'portrait'} onChange={e => setTemplate(prev => ({ ...prev, pageSettings: { ...(prev.pageSettings as any), orientation: e.target.value as any } }))}>
-              <option value="portrait">Portrait</option><option value="landscape">Landscape</option>
-            </select>
-            {(['marginTop', 'marginRight', 'marginBottom', 'marginLeft'] as const).map(key => (
-              <input key={key} className="p-1 border rounded text-xs" type="number" value={(template.pageSettings as any)?.[key] ?? 12} onChange={e => setTemplate(prev => ({ ...prev, pageSettings: { ...(prev.pageSettings as any), [key]: Number(e.target.value) || 0 } }))} placeholder={key} />
-            ))}
-          </div>
-          <label className="flex items-center gap-2 text-xs">
-            <input type="checkbox" checked={template.pageSettings?.keepTogether !== false} onChange={e => setTemplate(prev => ({ ...prev, pageSettings: { ...(prev.pageSettings as any), keepTogether: e.target.checked } }))} />
-            Keep Together (چاپ پیوسته)
-          </label>
-        </div>
-
-        <div className="space-y-2">
-          <h4 className="font-bold text-xs text-gray-500 uppercase">Governance</h4>
-          <label className="flex items-center gap-2 text-xs">
-            <input type="checkbox" checked={!!template.governance?.requiresApproval} onChange={e => setTemplate(prev => ({ ...prev, governance: { ...(prev.governance || {}), requiresApproval: e.target.checked } }))} />
-            نیاز به تایید قبل از اجرا
-          </label>
-          <div className="grid grid-cols-2 gap-1">
-            {GOVERNANCE_ROLE_OPTIONS.map(role => (
-              <label key={role} className="text-[11px] flex items-center gap-1">
-                <input
-                  type="checkbox"
-                  checked={(template.governance?.requiredRoles || []).includes(role)}
-                  onChange={e => {
-                    const curr = template.governance?.requiredRoles || [];
-                    const next = e.target.checked ? [...new Set([...curr, role])] : curr.filter(r => r !== role);
-                    setTemplate(prev => ({ ...prev, governance: { ...(prev.governance || {}), requiredRoles: next } }));
-                  }}
-                />
-                {role}
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={template.pageSettings?.keepTogether !== false} onChange={e => setTemplate(prev => ({ ...prev, pageSettings: { ...(prev.pageSettings as any), keepTogether: e.target.checked } }))} />
+                چاپ پیوسته (Keep Together)
               </label>
-            ))}
-          </div>
+            </>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => toggleSettingsGroup('governance')}
+            className="w-full flex items-center justify-between px-2 py-1 rounded text-xs font-bold text-gray-500 uppercase bg-gray-50 hover:bg-gray-100"
+          >
+            <span>حاکمیت و دسترسی</span>
+            {collapsedSettingsGroups.governance ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+          </button>
+          {!collapsedSettingsGroups.governance && (
+            <>
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={!!template.governance?.requiresApproval} onChange={e => setTemplate(prev => ({ ...prev, governance: { ...(prev.governance || {}), requiresApproval: e.target.checked } }))} />
+                نیاز به تایید قبل از اجرا
+              </label>
+              <div className="grid grid-cols-2 gap-1">
+                {GOVERNANCE_ROLE_OPTIONS.map(role => (
+                  <label key={role} className="text-[11px] flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={(template.governance?.requiredRoles || []).includes(role)}
+                      onChange={e => {
+                        const curr = template.governance?.requiredRoles || [];
+                        const next = e.target.checked ? [...new Set([...curr, role])] : curr.filter(r => r !== role);
+                        setTemplate(prev => ({ ...prev, governance: { ...(prev.governance || {}), requiredRoles: next } }));
+                      }}
+                    />
+                    {role}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -1044,6 +1194,18 @@ export const ReportTemplateDesign: React.FC = () => {
   const renderProperties = () => {
     if (!selectedElement) return <div className="text-gray-400 text-center text-sm mt-10">یک المان را برای ویرایش انتخاب کنید.</div>;
     const el = selectedElement;
+    const isCollapsed = (key: string) => collapsedPropertyGroups[key] ?? true;
+    const toggleGroup = (key: string) => setCollapsedPropertyGroups(prev => ({ ...prev, [key]: !(prev[key] ?? true) }));
+    const renderGroupHeader = (label: string, key: string) => (
+      <button
+        type="button"
+        onClick={() => toggleGroup(key)}
+        className="w-full flex items-center justify-between px-2 py-1 rounded text-xs font-bold text-gray-500 uppercase bg-gray-50 hover:bg-gray-100"
+      >
+        <span>{label}</span>
+        {isCollapsed(key) ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+      </button>
+    );
 
     const TextStyleEditor = ({ path, label, disableText = false }: {path: string, label: string, disableText?: boolean}) => {
       const propGroup = path.split('.').reduce((o, i) => o?.[i], el.props) || {};
@@ -1128,10 +1290,16 @@ export const ReportTemplateDesign: React.FC = () => {
         const newCols = el.props.columns.map(c => c.key === key ? { ...c, ...newConfig } : c);
         updateElement(el.id, { columns: newCols });
     };
+    const availableColumnsForTable =
+      el.type === 'TABLE' && el.props.dataSource ? TABLE_COLUMNS[el.props.dataSource] : [];
+    const currentColumnKeysForTable = el.type === 'TABLE' ? el.props.columns?.map(c => c.key) || [] : [];
 
     return (
       <div className="space-y-4 animate-fadeIn">
-        <div className="space-y-2"><h4 className="font-bold text-xs text-gray-500 uppercase">موقعیت و اندازه</h4>
+        <div className="space-y-2">
+            {renderGroupHeader('موقعیت و اندازه', 'layout')}
+            {!isCollapsed('layout') && (
+            <>
             <div className="grid grid-cols-4 gap-2 text-xs">
                 {['x', 'y', 'width', 'height'].map(key => (<div key={key}><label className="block text-center text-[9px] text-gray-400">{key.toUpperCase()}</label><input className="w-full p-1 border rounded text-center" type="number" value={Math.round((el.layout as any)[key])} onChange={e => updateElement(el.id, { [key]: parseInt(e.target.value) }, 'layout')} /></div>))}
             </div>
@@ -1167,8 +1335,13 @@ export const ReportTemplateDesign: React.FC = () => {
               <label className="block text-[10px] text-gray-500 mb-1">Subreport Template Id (اختیاری)</label>
               <input className="w-full p-1 border rounded text-xs ltr text-left" value={el.props.subreportTemplateId || ''} onChange={e => updateElement(el.id, { subreportTemplateId: e.target.value || undefined })} />
             </div>
+            </>
+            )}
         </div>
-        <div className="space-y-2"><h4 className="font-bold text-xs text-gray-500 uppercase">ظاهر</h4>
+        <div className="space-y-2">
+            {renderGroupHeader('ظاهر', 'appearance')}
+            {!isCollapsed('appearance') && (
+            <>
             {el.type === 'HEADER' && (
                 <div className="mb-2">
                     <label className="text-xs">استایل کادر</label>
@@ -1189,10 +1362,15 @@ export const ReportTemplateDesign: React.FC = () => {
                  <div><label className="text-xs">رنگ کادر</label><input type="color" className="w-full h-8 p-0 rounded" value={el.props.borderColor || '#cccccc'} onChange={e => updateElement(el.id, { borderColor: e.target.value })} /></div>
                  <div className="col-span-2"><label className="text-xs">ضخامت کادر (px)</label><input type="number" min="0" max="10" value={el.props.borderWidth || 0} onChange={e => updateElement(el.id, { borderWidth: parseInt(e.target.value) })} className="w-full p-1 border rounded text-xs"/></div>
             </div>
+            </>
+            )}
         </div>
         
         { (el.type !== 'HEADER' && el.type !== 'TEXT') &&
-            <div className="space-y-2"><h4 className="font-bold text-xs text-gray-500 uppercase">منبع داده</h4>
+            <div className="space-y-2">
+                {renderGroupHeader('منبع داده', 'dataSource')}
+                {!isCollapsed('dataSource') && (
+                <>
                 <select className="w-full p-2 text-sm border rounded" value={el.props.dataSource || ''} onChange={e => updateElement(el.id, { dataSource: e.target.value, valueField: '', labelField: '' })}>
                     <option value="">اتصال به داده...</option>
                     {Object.keys(TABLE_COLUMNS).map(key => <option key={key} value={key}>{key}</option>)}
@@ -1287,11 +1465,16 @@ export const ReportTemplateDesign: React.FC = () => {
                             </select>
                         </>}
                     </div>)}
+                </>
+                )}
             </div>
         }
         
         {el.type === 'HEADER' && (
           <div className="space-y-4">
+            {renderGroupHeader('تنظیمات هدر', 'header')}
+            {!isCollapsed('header') && (
+            <>
             <TextStyleEditor path="titleProps" label="عنوان اصلی" />
             <TextStyleEditor path="subtitleProps" label="زیر عنوان" />
             <div className="space-y-2 border-t pt-4 mt-4">
@@ -1335,13 +1518,22 @@ export const ReportTemplateDesign: React.FC = () => {
                 </div>
               )}
             </div>
+            </>
+            )}
           </div>
         )}
 
-        {el.type === 'TEXT' && <TextStyleEditor path="textProps" label="استایل متن" />}
+        {el.type === 'TEXT' && (
+          <div className="space-y-2">
+            {renderGroupHeader('استایل متن', 'text')}
+            {!isCollapsed('text') && <TextStyleEditor path="textProps" label="استایل متن" />}
+          </div>
+        )}
         {el.type === 'IMAGE' && (
           <div className="space-y-3">
-            <h4 className="font-bold text-xs text-gray-500 uppercase">تنظیمات تصویر</h4>
+            {renderGroupHeader('تنظیمات تصویر', 'image')}
+            {!isCollapsed('image') && (
+            <>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -1358,9 +1550,14 @@ export const ReportTemplateDesign: React.FC = () => {
               <option value="cover">Cover (پر کردن کادر)</option>
               <option value="fill">Fill (کشیدگی کامل)</option>
             </select>
+            </>
+            )}
           </div>
         )}
         {el.type === 'STAT_CARD' && <div className="space-y-4">
+            {renderGroupHeader('تنظیمات کارت آمار', 'stat')}
+            {!isCollapsed('stat') && (
+            <>
             <TextStyleEditor path="labelProps" label="استایل برچسب" />
             <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.labelProps?.highlight || false} onChange={e => updateNestedProps('labelProps', {...el.props.labelProps, highlight: e.target.checked})} /> <label>هایلایت کردن برچسب</label></div>
             
@@ -1386,70 +1583,83 @@ export const ReportTemplateDesign: React.FC = () => {
                   <div><label className="text-xs">رنگ نوار</label><input type="color" value={el.props.goalProps?.color || '#10b981'} onChange={e => updateNestedProps('goalProps', {...el.props.goalProps, color: e.target.value})} className="w-full h-8 p-0 rounded"/></div>
               </div>}
           </div>
+          </>
+          )}
         </div>}
 
-        {el.type === 'TABLE' && (() => {
-            const availableColumns = el.props.dataSource ? TABLE_COLUMNS[el.props.dataSource] : [];
-            const currentColumnKeys = el.props.columns?.map(c => c.key) || [];
-            return (
+        {el.type === 'TABLE' && (
                 <div className="space-y-4">
-                    <div className="space-y-2"><h4 className="font-bold text-xs text-gray-500 uppercase">مدیریت ستون‌ها</h4>
-                        <div className="space-y-2 bg-gray-50 p-2 rounded max-h-60 overflow-y-auto">
-                            {availableColumns.map(key => {
-                                const isSelected = currentColumnKeys.includes(key);
+                    <div className="space-y-2">
+                        {renderGroupHeader('تنظیمات جدول', 'table')}
+                        {!isCollapsed('table') && (
+                          <div className="space-y-3">
+                            <h4 className="font-bold text-xs text-gray-500 uppercase">مدیریت ستون‌ها</h4>
+                            <div className="space-y-2 bg-gray-50 p-2 rounded max-h-60 overflow-y-auto">
+                              {availableColumnsForTable.map(key => {
+                                const isSelected = currentColumnKeysForTable.includes(key);
                                 const colConfig = el.props.columns?.find(c => c.key === key);
                                 return (
-                                <div key={key}>
+                                  <div key={key}>
                                     <div className="flex items-center gap-2"><input type="checkbox" checked={isSelected} onChange={e => handleColumnToggle(key, e.target.checked)} /><span className="text-xs flex-1">{key}</span></div>
-                                    {isSelected && colConfig && (<div className="pr-6 mt-1 space-y-1">
+                                    {isSelected && colConfig && (
+                                      <div className="pr-6 mt-1 space-y-1">
                                         <input type="text" placeholder="عنوان ستون..." value={colConfig.header} onChange={e => updateColumnConfig(key, { header: e.target.value })} className="w-full p-1 border rounded text-xs" />
                                         <div className="flex bg-gray-200 rounded p-0.5">
-                                            {(['right', 'center', 'left'] as const).map(align => <button key={align} type="button" onClick={() => updateColumnConfig(key, { align })} className={`p-1 rounded ${colConfig.align === align ? 'bg-white shadow' : ''}`}>{align === 'right' ? <AlignRight className="w-4 h-4"/> : align === 'center' ? <AlignCenter className="w-4 h-4"/> : <AlignLeft className="w-4 h-4"/>}</button>)}
+                                          {(['right', 'center', 'left'] as const).map(align => <button key={align} type="button" onClick={() => updateColumnConfig(key, { align })} className={`p-1 rounded ${colConfig.align === align ? 'bg-white shadow' : ''}`}>{align === 'right' ? <AlignRight className="w-4 h-4"/> : align === 'center' ? <AlignCenter className="w-4 h-4"/> : <AlignLeft className="w-4 h-4"/>}</button>)}
                                         </div>
-                                    </div>)}
-                                </div>
-                            )})}
-                        </div>
-                    </div>
-                    <div className="space-y-2"><h4 className="font-bold text-xs text-gray-500 uppercase">استایل</h4>
-                        <TextStyleEditor path="headerStyle" label="استایل هدر" />
-                        <div className="pl-4 -mt-2 space-y-1"><label className="text-xs">رنگ پس زمینه هدر</label><input type="color" className="w-full h-8 p-0 rounded" value={el.props.headerStyle?.backgroundColor || '#f3f4f6'} onChange={e => updateNestedProps('headerStyle', { ...el.props.headerStyle, backgroundColor: e.target.value })}/></div>
-                        <TextStyleEditor path="rowStyle" label="استایل ردیف‌ها" />
-                        <div className="pl-4 -mt-2 space-y-1"><label className="text-xs">رنگ ردیف جایگزین</label><input type="color" className="w-full h-8 p-0 rounded" value={el.props.alternateRowColor || '#fafafa'} onChange={e => updateElement(el.id, { alternateRowColor: e.target.value })}/></div>
-                        <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.showRowNumber || false} onChange={e => updateElement(el.id, { showRowNumber: e.target.checked })}/> <label>نمایش شماره ردیف</label></div>
-                        <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.showTableBorders !== false} onChange={e => updateElement(el.id, { showTableBorders: e.target.checked })}/> <label>نمایش خطوط جدول</label></div>
-                        <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.compactRows || false} onChange={e => updateElement(el.id, { compactRows: e.target.checked })}/> <label>حالت فشرده</label></div>
-                        <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.wrapText !== false} onChange={e => updateElement(el.id, { wrapText: e.target.checked })}/> <label>شکستن متن سلول‌ها</label></div>
-                        <div className="space-y-1 border rounded p-2 bg-gray-50">
-                          <div className="flex items-center gap-2 text-xs">
-                            <input type="checkbox" checked={el.props.showTotalsRow || false} onChange={e => updateElement(el.id, { showTotalsRow: e.target.checked })}/>
-                            <label>نمایش ردیف جمع ستون‌ها</label>
-                          </div>
-                          {(el.props.showTotalsRow || false) && (
-                            <div className="grid grid-cols-2 gap-1 max-h-28 overflow-y-auto">
-                              {availableColumns.map(key => (
-                                <label key={key} className="text-[11px] flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={(el.props.totalFields || []).includes(key)}
-                                    onChange={e => {
-                                      const curr = el.props.totalFields || [];
-                                      const next = e.target.checked ? [...new Set([...curr, key])] : curr.filter(f => f !== key);
-                                      updateElement(el.id, { totalFields: next });
-                                    }}
-                                  />
-                                  {key}
-                                </label>
-                              ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
-                          )}
-                        </div>
-                    </div>
-                </div>
-            )
-        })()}
 
-        {['CHART_BAR', 'CHART_PIE', 'CHART_LINE', 'CHART_AREA', 'CHART_RADAR'].includes(el.type) && <div className="space-y-4"><TextStyleEditor path="titleProps" label="استایل عنوان نمودار" />
+                            <div className="space-y-2">
+                              <h4 className="font-bold text-xs text-gray-500 uppercase">استایل</h4>
+                              <TextStyleEditor path="headerStyle" label="استایل هدر" />
+                              <div className="pl-4 -mt-2 space-y-1"><label className="text-xs">رنگ پس زمینه هدر</label><input type="color" className="w-full h-8 p-0 rounded" value={el.props.headerStyle?.backgroundColor || '#f3f4f6'} onChange={e => updateNestedProps('headerStyle', { ...el.props.headerStyle, backgroundColor: e.target.value })}/></div>
+                              <TextStyleEditor path="rowStyle" label="استایل ردیف‌ها" />
+                              <div className="pl-4 -mt-2 space-y-1"><label className="text-xs">رنگ ردیف جایگزین</label><input type="color" className="w-full h-8 p-0 rounded" value={el.props.alternateRowColor || '#fafafa'} onChange={e => updateElement(el.id, { alternateRowColor: e.target.value })}/></div>
+                              <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.showRowNumber || false} onChange={e => updateElement(el.id, { showRowNumber: e.target.checked })}/> <label>نمایش شماره ردیف</label></div>
+                              <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.showTableBorders !== false} onChange={e => updateElement(el.id, { showTableBorders: e.target.checked })}/> <label>نمایش خطوط جدول</label></div>
+                              <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.compactRows || false} onChange={e => updateElement(el.id, { compactRows: e.target.checked })}/> <label>حالت فشرده</label></div>
+                              <div className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.props.wrapText !== false} onChange={e => updateElement(el.id, { wrapText: e.target.checked })}/> <label>شکستن متن سلول‌ها</label></div>
+                              <div className="space-y-1 border rounded p-2 bg-gray-50">
+                                <div className="flex items-center gap-2 text-xs">
+                                  <input type="checkbox" checked={el.props.showTotalsRow || false} onChange={e => updateElement(el.id, { showTotalsRow: e.target.checked })}/>
+                                  <label>نمایش ردیف جمع ستون‌ها</label>
+                                </div>
+                                {(el.props.showTotalsRow || false) && (
+                                  <div className="grid grid-cols-2 gap-1 max-h-28 overflow-y-auto">
+                                    {availableColumnsForTable.map(key => (
+                                      <label key={key} className="text-[11px] flex items-center gap-1">
+                                        <input
+                                          type="checkbox"
+                                          checked={(el.props.totalFields || []).includes(key)}
+                                          onChange={e => {
+                                            const curr = el.props.totalFields || [];
+                                            const next = e.target.checked ? [...new Set([...curr, key])] : curr.filter(f => f !== key);
+                                            updateElement(el.id, { totalFields: next });
+                                          }}
+                                        />
+                                        {key}
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                    )}
+                </div>
+                </div>
+        )}
+
+        {['CHART_BAR', 'CHART_PIE', 'CHART_LINE', 'CHART_AREA', 'CHART_RADAR'].includes(el.type) && <div className="space-y-4">
+           {renderGroupHeader('تنظیمات نمودار', 'chart')}
+           {!isCollapsed('chart') && (
+           <>
+           <TextStyleEditor path="titleProps" label="استایل عنوان نمودار" />
            <div className="space-y-2 border-t pt-4 mt-4">
               <h4 className="font-bold text-xs text-gray-500 uppercase">تنظیمات ظاهری نمودار</h4>
               <div className="flex items-center gap-2"><input type="checkbox" checked={el.props.showLegend || false} onChange={e => updateElement(el.id, {showLegend: e.target.checked})} /> <label className="text-xs">نمایش راهنما (Legend)</label></div>
@@ -1469,13 +1679,18 @@ export const ReportTemplateDesign: React.FC = () => {
               {el.type === 'CHART_AREA' && <div><label className="text-xs">شفافیت ناحیه</label><input type="number" min="0" max="1" step="0.05" value={el.props.areaOpacity ?? 0.35} onChange={e => updateElement(el.id, {areaOpacity: parseFloat(e.target.value)})} className="w-full p-1 text-xs border rounded"/></div>}
               {(el.type === 'CHART_BAR' || el.type === 'CHART_AREA') && <div className="flex items-center gap-2"><input type="checkbox" checked={el.props.stacked || false} onChange={e => updateElement(el.id, {stacked: e.target.checked})} /> <label className="text-xs">حالت تجمعی (Stacked)</label></div>}
            </div>
+           </>
+           )}
         </div>}
         
         {/* Delete Button */}
         <div className="border-t pt-4 mt-4">
+           {renderGroupHeader('عملیات', 'actions')}
+           {!isCollapsed('actions') && (
            <button onClick={() => removeElement(el.id)} className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition">
              <Trash2 className="w-4 h-4" /> حذف المان
            </button>
+           )}
         </div>
       </div>
     );
@@ -1509,7 +1724,24 @@ export const ReportTemplateDesign: React.FC = () => {
             {groupedTemplates.map(group => (
               <div key={group.moduleId} className="bg-white dark:bg-gray-800 rounded-xl border p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold">{group.moduleLabel}</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() =>
+                        setCollapsedModules(prev => ({
+                          ...prev,
+                          [group.moduleId]: !prev[group.moduleId],
+                        }))
+                      }
+                      className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
+                      title={collapsedModules[group.moduleId] ? 'باز کردن لیست نسخه‌ها' : 'جمع کردن لیست نسخه‌ها'}
+                    >
+                      {collapsedModules[group.moduleId] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    </button>
+                    <div>
+                      <h3 className="font-bold">{group.moduleLabel}</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">{group.items.length} نسخه ثبت شده</p>
+                    </div>
+                  </div>
                   <button
                     onClick={() => { loadTemplateForModule(group.moduleId); setMainTab('DESIGN'); }}
                     className="text-xs px-3 py-1.5 rounded bg-blue-50 text-blue-700"
@@ -1517,38 +1749,89 @@ export const ReportTemplateDesign: React.FC = () => {
                     طراحی نسخه جدید
                   </button>
                 </div>
-                {group.items.length === 0 ? (
+                {collapsedModules[group.moduleId] ? (
+                  <p className="text-sm text-gray-400 py-2">لیست نسخه‌ها جمع شده است.</p>
+                ) : group.items.length === 0 ? (
                   <p className="text-sm text-gray-400">هنوز قالبی ثبت نشده است.</p>
                 ) : (
                   <div className="space-y-2">
                     {group.items.map((item: any) => (
-                      <div key={item.id} className="flex items-center justify-between border rounded-lg p-2">
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-bold">{item.title}</span>
-                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">v{item.version}</span>
-                          {item.isActive && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">فعال</span>}
+                      <div key={item.id} className="border rounded-lg p-3 bg-white dark:bg-gray-900/30">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-bold">{item.title}</span>
+                            <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">v{item.version}</span>
+                            {item.isActive && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">فعال</span>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() =>
+                                setExpandedTemplateDetails(prev => ({
+                                  ...prev,
+                                  [item.id]: !prev[item.id],
+                                }))
+                              }
+                              className="text-xs px-2 py-1 rounded bg-gray-100"
+                            >
+                              {expandedTemplateDetails[item.id] ? 'جمع جزئیات' : 'جزئیات'}
+                            </button>
+                            <button
+                              onClick={() => { setTemplate(item); setSelectedElementId(item.elements?.[0]?.id || null); setMainTab('DESIGN'); }}
+                              className="text-xs px-3 py-1.5 rounded bg-gray-100"
+                            >
+                              باز کردن
+                            </button>
+                            <button
+                              onClick={() => handleActivateTemplate(item.id, group.moduleId)}
+                              disabled={item.isActive}
+                              className="text-xs px-3 py-1.5 rounded bg-green-50 text-green-700 disabled:opacity-40"
+                            >
+                              فعال‌سازی
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTemplate(item.id)}
+                              className="text-xs px-3 py-1.5 rounded bg-red-50 text-red-700"
+                            >
+                              حذف
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => { setTemplate(item); setSelectedElementId(item.elements?.[0]?.id || null); setMainTab('DESIGN'); }}
-                            className="text-xs px-3 py-1.5 rounded bg-gray-100"
-                          >
-                            باز کردن
-                          </button>
-                          <button
-                            onClick={() => handleActivateTemplate(item.id, group.moduleId)}
-                            disabled={item.isActive}
-                            className="text-xs px-3 py-1.5 rounded bg-green-50 text-green-700 disabled:opacity-40"
-                          >
-                            فعال‌سازی
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTemplate(item.id)}
-                            className="text-xs px-3 py-1.5 rounded bg-red-50 text-red-700"
-                          >
-                            حذف
-                          </button>
+                        <div className="text-xs text-gray-500 mt-2">
+                          شناسه نسخه: <span className="font-mono ltr inline-block">{item.id}</span>
                         </div>
+                        {expandedTemplateDetails[item.id] && (
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+                              <div className="text-gray-500">زمان ساخت</div>
+                              <div className="font-bold mt-1">{formatDateTime(item.createdAt)}</div>
+                            </div>
+                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+                              <div className="text-gray-500">آخرین ویرایش</div>
+                              <div className="font-bold mt-1">{formatDateTime(item.updatedAt)}</div>
+                            </div>
+                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+                              <div className="text-gray-500">سازنده</div>
+                              <div className="font-bold mt-1">{item.createdBy || item.created_by || 'سیستم'}</div>
+                              {(item.createdByUsername || item.created_by_username) && (
+                                <div className="text-[11px] text-gray-500 mt-1 ltr text-left">
+                                  @{item.createdByUsername || item.created_by_username}
+                                </div>
+                              )}
+                            </div>
+                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+                              <div className="text-gray-500">تعداد المان</div>
+                              <div className="font-bold mt-1">{Array.isArray(item.elements) ? item.elements.length : 0}</div>
+                            </div>
+                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+                              <div className="text-gray-500">تعداد دیتاست</div>
+                              <div className="font-bold mt-1">{Array.isArray(item.datasets) ? item.datasets.length : 0}</div>
+                            </div>
+                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+                              <div className="text-gray-500">تعداد پارامتر</div>
+                              <div className="font-bold mt-1">{Array.isArray(item.parameters) ? item.parameters.length : 0}</div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1562,54 +1845,118 @@ export const ReportTemplateDesign: React.FC = () => {
           <div className="w-56 bg-white dark:bg-gray-800 border-l flex flex-col z-20">
             <div className="p-4 border-b"><h2 className="font-bold flex items-center gap-2"><LayoutTemplate className="w-5 h-5 text-primary"/> ابزارها</h2></div>
             <div className="flex-1 p-2 space-y-2">
-                <h3 className="text-[10px] text-gray-400 font-bold uppercase px-2">پایه</h3>
-                <button onClick={() => addElement('HEADER')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><FileText className="w-4 h-4"/> هدر</button>
-                <button onClick={() => addElement('TEXT')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><Type className="w-4 h-4"/> متن</button>
-                <button onClick={() => addElement('IMAGE')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><ImageIcon className="w-4 h-4"/> تصویر</button>
-                <h3 className="text-[10px] text-gray-400 font-bold uppercase px-2 pt-2">داده</h3>
-                <button onClick={() => addElement('STAT_CARD')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><Sigma className="w-4 h-4"/> کارت آمار</button>
-                <button onClick={() => addElement('TABLE')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><TableIcon className="w-4 h-4"/> جدول</button>
-                <h3 className="text-[10px] text-gray-400 font-bold uppercase px-2 pt-2">نمودار</h3>
-                <button onClick={() => addElement('CHART_BAR')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><BarChartIcon className="w-4 h-4"/> میله‌ای</button>
-                <button onClick={() => addElement('CHART_PIE')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><PieChartIcon className="w-4 h-4"/> دایره‌ای</button>
-                <button onClick={() => addElement('CHART_LINE')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><LineChartIcon className="w-4 h-4"/> خطی</button>
-                <button onClick={() => addElement('CHART_AREA')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><LineChartIcon className="w-4 h-4"/> ناحیه‌ای (Area)</button>
-                <button onClick={() => addElement('CHART_RADAR')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><BarChartIcon className="w-4 h-4"/> رادار</button>
+                <button
+                  type="button"
+                  onClick={() => setCollapsedToolGroups(prev => ({ ...prev, base: !prev.base }))}
+                  className="w-full flex items-center justify-between px-2 py-1 rounded text-[10px] text-gray-500 font-bold uppercase bg-gray-50 hover:bg-gray-100"
+                >
+                  <span>پایه</span>
+                  {collapsedToolGroups.base ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+                </button>
+                {!collapsedToolGroups.base && (
+                  <div className="space-y-2">
+                    <button onClick={() => addElement('HEADER')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><FileText className="w-4 h-4"/> هدر</button>
+                    <button onClick={() => addElement('TEXT')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><Type className="w-4 h-4"/> متن</button>
+                    <button onClick={() => addElement('IMAGE')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><ImageIcon className="w-4 h-4"/> تصویر</button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setCollapsedToolGroups(prev => ({ ...prev, data: !prev.data }))}
+                  className="w-full flex items-center justify-between px-2 py-1 rounded text-[10px] text-gray-500 font-bold uppercase bg-gray-50 hover:bg-gray-100"
+                >
+                  <span>داده</span>
+                  {collapsedToolGroups.data ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+                </button>
+                {!collapsedToolGroups.data && (
+                  <div className="space-y-2">
+                    <button onClick={() => addElement('STAT_CARD')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><Sigma className="w-4 h-4"/> کارت آمار</button>
+                    <button onClick={() => addElement('TABLE')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><TableIcon className="w-4 h-4"/> جدول</button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setCollapsedToolGroups(prev => ({ ...prev, charts: !prev.charts }))}
+                  className="w-full flex items-center justify-between px-2 py-1 rounded text-[10px] text-gray-500 font-bold uppercase bg-gray-50 hover:bg-gray-100"
+                >
+                  <span>نمودار</span>
+                  {collapsedToolGroups.charts ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+                </button>
+                {!collapsedToolGroups.charts && (
+                  <div className="space-y-2">
+                    <button onClick={() => addElement('CHART_BAR')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><BarChartIcon className="w-4 h-4"/> میله‌ای</button>
+                    <button onClick={() => addElement('CHART_PIE')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><PieChartIcon className="w-4 h-4"/> دایره‌ای</button>
+                    <button onClick={() => addElement('CHART_LINE')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><LineChartIcon className="w-4 h-4"/> خطی</button>
+                    <button onClick={() => addElement('CHART_AREA')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><LineChartIcon className="w-4 h-4"/> ناحیه‌ای</button>
+                    <button onClick={() => addElement('CHART_RADAR')} className="w-full flex items-center gap-2 p-2 bg-gray-50 hover:bg-blue-50 rounded text-sm"><BarChartIcon className="w-4 h-4"/> رادار</button>
+                  </div>
+                )}
             </div>
           </div>
           <div className="flex-1 flex flex-col bg-gray-200/50 dark:bg-gray-900/50">
-            <div className="h-16 bg-white dark:bg-gray-800 border-b flex items-center justify-between px-6 z-10">
-               <div className="flex items-center gap-4">
-                  <input type="text" value={template.title} onChange={e => setTemplate({ ...template, title: e.target.value })} className="font-bold text-lg bg-transparent outline-none w-64" />
-                  <select value={template.targetModule} onChange={e => loadTemplateForModule(e.target.value)} className="text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 border-none outline-none">
-                      {REPORT_MODULES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                  </select>
-                  <div className="flex items-center gap-1 border-r pr-3 mr-1">
-                    <button onClick={handleUndo} disabled={historyPast.length === 0} className="p-1.5 rounded bg-gray-100 disabled:opacity-40" title="Undo"><Undo2 className="w-4 h-4" /></button>
-                    <button onClick={handleRedo} disabled={historyFuture.length === 0} className="p-1.5 rounded bg-gray-100 disabled:opacity-40" title="Redo"><Redo2 className="w-4 h-4" /></button>
-                    <button onClick={handleDuplicateSelected} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 disabled:opacity-40" title="Duplicate"><Copy className="w-4 h-4" /></button>
-                    <button onClick={handleToggleLockSelected} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 disabled:opacity-40" title="Lock/Unlock">
+            <div className="bg-white dark:bg-gray-800 border-b px-6 py-3 z-10 space-y-2">
+               <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input type="text" value={template.title} onChange={e => setTemplate({ ...template, title: e.target.value })} className="font-bold text-lg bg-transparent outline-none w-72 max-w-full" />
+                    <select value={template.targetModule} onChange={e => loadTemplateForModule(e.target.value)} className="text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 border-none outline-none">
+                        {moduleOptions.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                    </select>
+                  </div>
+                  <button
+                    onClick={handleSaveTemplate}
+                    className="px-5 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg flex items-center gap-2 shrink-0"
+                    title="ذخیره نسخه جدید قالب"
+                  >
+                    <Save className="w-4 h-4"/> ذخیره نسخه جدید
+                  </button>
+               </div>
+               <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1">
+                  <div className="flex items-center gap-1 border-r pr-3 mr-1 shrink-0">
+                    <button onClick={handleUndo} disabled={historyPast.length === 0} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="بازگشت"><Undo2 className="w-4 h-4" /></button>
+                    <button onClick={handleRedo} disabled={historyFuture.length === 0} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="انجام مجدد"><Redo2 className="w-4 h-4" /></button>
+                    <button onClick={handleDuplicateSelected} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="کپی المان"><Copy className="w-4 h-4" /></button>
+                    <button
+                      onClick={handleToggleLockSelected}
+                      disabled={!selectedElement}
+                      className={`p-1.5 rounded disabled:opacity-40 transition-colors ${selectedElement?.props.locked ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-gray-100 hover:bg-gray-200'}`}
+                      title={selectedElement?.props.locked ? 'باز کردن قفل المان' : 'قفل کردن المان'}
+                    >
                       {selectedElement?.props.locked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                     </button>
                   </div>
-                  <div className="flex items-center gap-1 border-r pr-3 mr-1">
-                    <button onClick={() => alignSelected('left')} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 disabled:opacity-40" title="Align Left"><AlignRight className="w-4 h-4" /></button>
-                    <button onClick={() => alignSelected('center-x')} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 disabled:opacity-40" title="Align Center X"><AlignCenter className="w-4 h-4" /></button>
-                    <button onClick={() => alignSelected('right')} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 disabled:opacity-40" title="Align Right"><AlignLeft className="w-4 h-4" /></button>
+                  <div className="flex items-center gap-1 border-r pr-3 mr-1 shrink-0">
+                    <button onClick={() => alignSelected('left')} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="تراز به چپ"><AlignRight className="w-4 h-4" /></button>
+                    <button onClick={() => alignSelected('center-x')} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="تراز وسط افقی"><AlignCenter className="w-4 h-4" /></button>
+                    <button onClick={() => alignSelected('right')} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="تراز به راست"><AlignLeft className="w-4 h-4" /></button>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setEnableSnap(v => !v)} className={`px-2 py-1 rounded text-xs ${enableSnap ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`} title="Snap">{enableSnap ? 'Snap On' : 'Snap Off'}</button>
-                    <button onClick={() => setShowGridGuides(v => !v)} className={`px-2 py-1 rounded text-xs ${showGridGuides ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`} title="Grid">{showGridGuides ? 'Grid On' : 'Grid Off'}</button>
-                    <button onClick={() => setShowRuler(v => !v)} className={`px-2 py-1 rounded text-xs ${showRuler ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`} title="Ruler">{showRuler ? 'Ruler On' : 'Ruler Off'}</button>
-                    <button onClick={() => setShowLayers(v => !v)} className={`px-2 py-1 rounded text-xs ${showLayers ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`} title="Layers">{showLayers ? 'Layers On' : 'Layers Off'}</button>
-                    <button onClick={exportTemplateAsJson} className="p-1.5 rounded bg-gray-100" title="Export JSON"><Download className="w-4 h-4" /></button>
-                    <button onClick={() => importTemplateInputRef.current?.click()} className="p-1.5 rounded bg-gray-100" title="Import JSON"><Upload className="w-4 h-4" /></button>
+                  <div className="flex items-center gap-1 shrink-0 mx-auto">
+                    <button onClick={() => setEnableSnap(v => !v)} className={`px-3 py-1 rounded-full text-xs font-bold transition-colors inline-flex items-center gap-1 ${enableSnap ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-100 text-gray-700'}`} title="مغناطیسی کردن چینش">
+                      <Magnet className="w-3.5 h-3.5" />
+                      {enableSnap ? 'مغناطیس روشن' : 'مغناطیس خاموش'}
+                    </button>
+                    <button onClick={() => setShowGridGuides(v => !v)} className={`px-3 py-1 rounded-full text-xs font-bold transition-colors inline-flex items-center gap-1 ${showGridGuides ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300' : 'bg-gray-100 text-gray-700'}`} title="نمایش خطوط راهنما">
+                      <Grid className="w-3.5 h-3.5" />
+                      {showGridGuides ? 'شبکه روشن' : 'شبکه خاموش'}
+                    </button>
+                    <button onClick={() => setShowRuler(v => !v)} className={`px-3 py-1 rounded-full text-xs font-bold transition-colors inline-flex items-center gap-1 ${showRuler ? 'bg-violet-100 text-violet-700 ring-1 ring-violet-300' : 'bg-gray-100 text-gray-700'}`} title="نمایش خط‌کش">
+                      <Ruler className="w-3.5 h-3.5" />
+                      {showRuler ? 'خط‌کش روشن' : 'خط‌کش خاموش'}
+                    </button>
+                    <button onClick={() => setShowLayers(v => !v)} className={`px-3 py-1 rounded-full text-xs font-bold transition-colors inline-flex items-center gap-1 ${showLayers ? 'bg-orange-100 text-orange-700 ring-1 ring-orange-300' : 'bg-gray-100 text-gray-700'}`} title="نمایش پنل لایه‌ها">
+                      <Layers className="w-3.5 h-3.5" />
+                      {showLayers ? 'لایه‌ها روشن' : 'لایه‌ها خاموش'}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={exportTemplateAsJson} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 transition-colors" title="خروجی قالب (JSON)"><Download className="w-4 h-4" /></button>
+                    <button onClick={() => importTemplateInputRef.current?.click()} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 transition-colors" title="ورود قالب (JSON)"><Upload className="w-4 h-4" /></button>
                     <input ref={importTemplateInputRef} type="file" className="hidden" accept="application/json" onChange={handleImportTemplateJson} />
                   </div>
                </div>
-               <button onClick={handleSaveTemplate} className="px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg flex items-center gap-2"><Save className="w-4 h-4"/> ذخیره نسخه جدید</button>
             </div>
-            <div className="flex-1 overflow-auto p-8" onClick={() => setSelectedElementId(null)}>
+            <div className="flex-1 overflow-auto p-8 flex justify-center items-start" onClick={() => setSelectedElementId(null)}>
                <div ref={canvasRef} className="bg-white shadow-2xl relative" style={{ width: '210mm', height: '297mm', padding: '1mm' }}>
                   {template.elements.map(el => (
                     <div key={el.id} onClick={(e) => { e.stopPropagation(); setSelectedElementId(el.id); }} onMouseDown={(e) => startInteraction(e, 'move', el)} style={{ position: 'absolute', left: el.layout.x, top: el.layout.y, width: el.layout.width, height: el.layout.height, border: `1px ${selectedElementId === el.id ? 'dashed #3b82f6' : 'solid transparent'}`, cursor: el.props.locked ? 'not-allowed' : 'grab' }}>
@@ -1644,7 +1991,25 @@ export const ReportTemplateDesign: React.FC = () => {
             </div>
           </div>
           <div className="w-72 bg-white dark:bg-gray-800 border-r flex flex-col z-20">
-            <div className="p-4 border-b bg-gray-50"><h2 className="font-bold flex items-center gap-2"><Settings className="w-5 h-5 text-gray-500"/> تنظیمات</h2></div>
+            <div className="p-4 border-b bg-gray-50 space-y-2">
+              <h2 className="font-bold flex items-center gap-2"><Settings className="w-5 h-5 text-gray-500"/> تنظیمات</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAllRightPanelGroupsCollapsed(false)}
+                  className="flex-1 text-xs py-1.5 rounded bg-blue-50 text-blue-700 hover:bg-blue-100"
+                >
+                  باز کردن همه
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAllRightPanelGroupsCollapsed(true)}
+                  className="flex-1 text-xs py-1.5 rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+                >
+                  بستن همه
+                </button>
+              </div>
+            </div>
             <div className="flex-1 overflow-y-auto p-4">
               {renderTemplateSettings()}
               {renderProperties()}

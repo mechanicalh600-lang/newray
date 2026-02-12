@@ -7,6 +7,9 @@ import { DataPage } from '../components/DataPage';
 import { ShamsiDatePicker } from '../components/ShamsiDatePicker';
 import { getShamsiDate } from '../utils';
 import { openReportTemplatePreview } from '../utils/reportTemplateNavigation';
+import { ensureDefaultReportTemplate } from '../services/reportTemplates';
+import { supabase } from '../supabaseClient';
+import { fetchNextTrackingCode } from '../workflowStore';
 
 interface Props {
   user: User;
@@ -38,13 +41,24 @@ export const ControlRoomReport: React.FC<Props> = ({ user }) => {
   const [filterShift, setFilterShift] = useState('ALL');
 
   useEffect(() => {
-      // Mock Data Load
-      const mockData = [
-          { id: '1', code: 'CR-1403-001', date: '1403/11/01', shift: 'A', operator: 'علی رضایی', status: 'تکمیل شده', data: {} },
-          { id: '2', code: 'CR-1403-002', date: '1403/11/01', shift: 'B', operator: 'حسن محمدی', status: 'تکمیل شده', data: {} },
-      ];
-      setItems(mockData);
-      setFilteredItems(mockData);
+      ensureDefaultReportTemplate('control-room', 'قالب پیش فرض گزارش اتاق کنترل');
+      supabase
+        .from('control_room_reports')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .then(({ data }) => {
+          const rows = (data || []).map((row: any) => ({
+            id: row.id,
+            code: row.tracking_code,
+            date: row.report_date,
+            shift: row.shift,
+            operator: row.operator_name,
+            status: row.status || 'تکمیل شده',
+            data: row.full_data || {},
+          }));
+          setItems(rows);
+          setFilteredItems(rows);
+        });
   }, []);
 
   // Filter Logic
@@ -67,8 +81,37 @@ export const ControlRoomReport: React.FC<Props> = ({ user }) => {
   };
 
   const handleSave = () => {
-      alert('گزارش ثبت شد.');
-      setView('LIST');
+      if (!formData.date || !formData.shift) {
+          alert('تاریخ و شیفت الزامی است.');
+          return;
+      }
+      fetchNextTrackingCode('CR-').then(async trackingCode => {
+        const payload = {
+          tracking_code: trackingCode,
+          report_date: formData.date,
+          shift: formData.shift,
+          operator_name: user.fullName,
+          status: 'تکمیل شده',
+          full_data: formData,
+        };
+        const { error } = await supabase.from('control_room_reports').insert([payload]);
+        if (error) {
+          alert(`خطا در ثبت: ${error.message}`);
+          return;
+        }
+        alert('گزارش ثبت شد.');
+        const appended = {
+          id: `${Date.now()}`,
+          code: trackingCode,
+          date: formData.date,
+          shift: formData.shift,
+          operator: user.fullName,
+          status: 'تکمیل شده',
+          data: formData,
+        };
+        setItems(prev => [appended, ...prev]);
+        setView('LIST');
+      });
   };
 
   const columns = [

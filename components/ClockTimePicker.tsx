@@ -69,7 +69,7 @@ export const ClockTimePicker: React.FC<Props> = ({ value, onChange, label }) => 
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-700 rounded-xl border transition-all
+        className={`w-full h-11 flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-700 rounded-xl border transition-all
         ${isOpen ? 'ring-2 ring-primary/20 border-primary shadow-sm' : 'border-gray-200 dark:border-gray-600 hover:border-primary/50'}
         `}
       >

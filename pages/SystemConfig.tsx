@@ -49,36 +49,42 @@ export const SystemConfig: React.FC = () => {
   const fetchSettings = async () => {
       setLoading(true);
       try {
-          const { data, error } = await supabase.from('app_settings').select('*').single();
-          if (data) {
+          const { data, error } = await supabase
+            .from('app_settings')
+            .select('*')
+            .order('created_at', { ascending: true })
+            .limit(1);
+          if (error) throw error;
+          const row = Array.isArray(data) ? data[0] : null;
+          if (row) {
               setSettings({
-                  id: data.id,
-                  org_name: data.org_name || '',
-                  org_logo: data.org_logo || '',
-                  session_timeout_minutes: data.session_timeout_minutes || 5,
-                  maintenance_mode: data.maintenance_mode || false,
-                  announcement_message: data.announcement_message || '',
-                  announcement_active: data.announcement_active || false,
-                  max_upload_size_mb: data.max_upload_size_mb || 5,
-                  shift_a_start: data.shift_a_start || '07:00',
-                  shift_b_start: data.shift_b_start || '15:00',
-                  shift_c_start: data.shift_c_start || '23:00',
+                  id: row.id,
+                  org_name: row.org_name || '',
+                  org_logo: row.org_logo || '',
+                  session_timeout_minutes: row.session_timeout_minutes || 5,
+                  maintenance_mode: row.maintenance_mode || false,
+                  announcement_message: row.announcement_message || '',
+                  announcement_active: row.announcement_active || false,
+                  max_upload_size_mb: row.max_upload_size_mb || 5,
+                  shift_a_start: row.shift_a_start || '07:00',
+                  shift_b_start: row.shift_b_start || '15:00',
+                  shift_c_start: row.shift_c_start || '23:00',
                   
                   // Prefixes
-                  work_order_prefix: data.work_order_prefix || 'WO',
-                  pm_plan_prefix: data.pm_plan_prefix || 'PM',
-                  request_part_prefix: data.request_part_prefix || 'PR',
-                  purchase_request_prefix: data.purchase_request_prefix || 'PUR',
-                  meeting_prefix: data.meeting_prefix || 'MT',
-                  suggestion_prefix: data.suggestion_prefix || 'SUG',
-                  incident_prefix: data.incident_prefix || 'HSE',
-                  lab_report_prefix: data.lab_report_prefix || 'LAB',
-                  warehouse_entry_prefix: data.warehouse_entry_prefix || 'W-IN',
-                  warehouse_exit_prefix: data.warehouse_exit_prefix || 'W-OUT',
-                  scale_report_prefix: data.scale_report_prefix || 'SCL',
-                  document_prefix: data.document_prefix || 'DOC',
-                  project_prefix: data.project_prefix || 'PROJ',
-                  training_course_prefix: data.training_course_prefix || 'TRN'
+                  work_order_prefix: row.work_order_prefix || 'WO',
+                  pm_plan_prefix: row.pm_plan_prefix || 'PM',
+                  request_part_prefix: row.request_part_prefix || 'PR',
+                  purchase_request_prefix: row.purchase_request_prefix || 'PUR',
+                  meeting_prefix: row.meeting_prefix || 'MT',
+                  suggestion_prefix: row.suggestion_prefix || 'SUG',
+                  incident_prefix: row.incident_prefix || 'HSE',
+                  lab_report_prefix: row.lab_report_prefix || 'LAB',
+                  warehouse_entry_prefix: row.warehouse_entry_prefix || 'W-IN',
+                  warehouse_exit_prefix: row.warehouse_exit_prefix || 'W-OUT',
+                  scale_report_prefix: row.scale_report_prefix || 'SCL',
+                  document_prefix: row.document_prefix || 'DOC',
+                  project_prefix: row.project_prefix || 'PROJ',
+                  training_course_prefix: row.training_course_prefix || 'TRN'
               });
           }
       } catch (e) {
@@ -92,14 +98,25 @@ export const SystemConfig: React.FC = () => {
       e.preventDefault();
       setSaving(true);
       try {
-          const { error } = await supabase.from('app_settings').upsert({
-              id: settings.id || undefined, 
-              ...settings
-          });
-
-          if (error) throw error;
+          const payload = { ...settings };
+          if (payload.id) {
+            const { error } = await supabase
+              .from('app_settings')
+              .update(payload)
+              .eq('id', payload.id);
+            if (error) throw error;
+          } else {
+            const { data, error } = await supabase
+              .from('app_settings')
+              .insert([payload])
+              .select('id')
+              .single();
+            if (error) throw error;
+            if (data?.id) setSettings((prev) => ({ ...prev, id: data.id }));
+          }
           
           alert('تنظیمات با موفقیت ذخیره شد.');
+          await fetchSettings();
       } catch (e: any) {
           alert('خطا در ذخیره تنظیمات: ' + e.message);
       } finally {

@@ -9,6 +9,9 @@ import { TabBudget, TabFeed, TabProduction, TabWaste, TabDowntime, TabAvailabili
 import { DataPage } from '../components/DataPage';
 import { ShamsiDatePicker } from '../components/ShamsiDatePicker';
 import { openReportTemplatePreview } from '../utils/reportTemplateNavigation';
+import { ensureDefaultReportTemplate } from '../services/reportTemplates';
+import { supabase } from '../supabaseClient';
+import { fetchNextTrackingCode } from '../workflowStore';
 
 interface Props {
   user: User;
@@ -32,6 +35,7 @@ export const ProductionReport: React.FC<Props> = ({ user }) => {
   const [budgetData, setBudgetData] = useState({ feedUsage: '', feedDevPercent: '100', prodUsage: '', prodDevPercent: '100' });
 
   useEffect(() => {
+      ensureDefaultReportTemplate('productionreport', 'قالب پیش فرض گزارش تولید');
       fetchReports();
   }, [viewMode]);
 
@@ -45,16 +49,28 @@ export const ProductionReport: React.FC<Props> = ({ user }) => {
 
   const fetchReports = async () => {
       setLoading(true);
-      setTimeout(() => {
-          const mockData = [
-              { id: '1', code: 'PR-1403-001', date: '1403/11/01', totalProd: 2500, status: 'تکمیل شده' },
-              { id: '2', code: 'PR-1403-002', date: '1403/11/02', totalProd: 2450, status: 'تکمیل شده' },
-              { id: '3', code: 'PR-1403-003', date: '1403/11/03', totalProd: 0, status: 'در حال انجام' },
-          ];
-          setData(mockData);
-          setFilteredData(mockData);
+      try {
+          const { data: rows, error } = await supabase
+            .from('production_reports')
+            .select('*')
+            .order('created_at', { ascending: false });
+          if (error) throw error;
+          const mapped = (rows || []).map((row: any) => ({
+            id: row.id,
+            code: row.tracking_code,
+            date: row.report_date,
+            totalProd: Number(row.total_production || 0),
+            status: row.status || 'تکمیل شده',
+            raw: row,
+          }));
+          setData(mapped);
+          setFilteredData(mapped);
+      } catch {
+          setData([]);
+          setFilteredData([]);
+      } finally {
           setLoading(false);
-      }, 500);
+      }
   };
 
   const handleDelete = async (ids: string[]) => {
@@ -146,7 +162,28 @@ export const ProductionReport: React.FC<Props> = ({ user }) => {
                   </button>
                   
                   {activeTab === PRODUCTION_TABS.length ? (
-                      <button type="button" onClick={() => { alert("ذخیره شد"); setViewMode('LIST'); }} className="bg-primary text-white px-8 py-3 rounded-xl shadow-lg hover:bg-red-800 transition flex items-center gap-2 transform active:scale-95 font-bold text-lg">
+                      <button type="button" onClick={async () => {
+                        if (!reportDate) {
+                          alert('تاریخ گزارش الزامی است.');
+                          return;
+                        }
+                        const trackingCode = await fetchNextTrackingCode('PR-');
+                        const payload = {
+                          tracking_code: trackingCode,
+                          report_date: reportDate,
+                          total_production: Number(budgetData.prodUsage || 0),
+                          status: 'تکمیل شده',
+                          full_data: { reportDate, budgetData, createdBy: user.fullName },
+                        };
+                        const { error } = await supabase.from('production_reports').insert([payload]);
+                        if (error) {
+                          alert(`خطا در ثبت: ${error.message}`);
+                          return;
+                        }
+                        alert("ذخیره شد");
+                        await fetchReports();
+                        setViewMode('LIST');
+                      }} className="bg-primary text-white px-8 py-3 rounded-xl shadow-lg hover:bg-red-800 transition flex items-center gap-2 transform active:scale-95 font-bold text-lg">
                           <Save className="w-6 h-6" /> ذخیره گزارش
                       </button>
                   ) : (

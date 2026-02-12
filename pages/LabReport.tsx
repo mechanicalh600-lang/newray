@@ -7,6 +7,8 @@ import { supabase } from '../supabaseClient';
 import { ShamsiDatePicker } from '../components/ShamsiDatePicker';
 import { DataPage } from '../components/DataPage';
 import { openReportTemplatePreview } from '../utils/reportTemplateNavigation';
+import { ensureDefaultReportTemplate } from '../services/reportTemplates';
+import { fetchNextTrackingCode } from '../workflowStore';
 
 interface Props {
   user: User;
@@ -21,8 +23,21 @@ export const LabReport: React.FC<Props> = ({ user }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filterDate, setFilterDate] = useState('');
   const [filterCode, setFilterCode] = useState('');
+  const [formData, setFormData] = useState({
+    report_date: '',
+    shift: 'A',
+    sample_code: '',
+    sample_location: '',
+    fe_percent: '',
+    feo_percent: '',
+    s_percent: '',
+    moisture_percent: '',
+    blaine: '',
+    mesh_size: '',
+  });
 
   useEffect(() => {
+    ensureDefaultReportTemplate('lab-report', 'قالب پیش فرض گزارش آزمایشگاه');
     fetchReports();
   }, []);
 
@@ -62,11 +77,77 @@ export const LabReport: React.FC<Props> = ({ user }) => {
   );
 
   if (view === 'NEW') {
+    const submitForm = async () => {
+      if (!formData.report_date || !formData.sample_code.trim()) {
+        alert('تاریخ و کد نمونه الزامی است.');
+        return;
+      }
+      const tracking_code = await fetchNextTrackingCode('LAB-');
+      const payload = {
+        tracking_code,
+        ...formData,
+        operator_id: user.id || null,
+        fe_percent: formData.fe_percent ? Number(formData.fe_percent) : null,
+        feo_percent: formData.feo_percent ? Number(formData.feo_percent) : null,
+        s_percent: formData.s_percent ? Number(formData.s_percent) : null,
+        moisture_percent: formData.moisture_percent ? Number(formData.moisture_percent) : null,
+        blaine: formData.blaine ? Number(formData.blaine) : null,
+        mesh_size: formData.mesh_size ? Number(formData.mesh_size) : null,
+      };
+      const { error } = await supabase.from('lab_reports').insert([payload]);
+      if (error) {
+        alert(`خطا در ثبت: ${error.message}`);
+        return;
+      }
+      alert('گزارش آزمایشگاه ثبت شد.');
+      setFormData({
+        report_date: '',
+        shift: 'A',
+        sample_code: '',
+        sample_location: '',
+        fe_percent: '',
+        feo_percent: '',
+        s_percent: '',
+        moisture_percent: '',
+        blaine: '',
+        mesh_size: '',
+      });
+      await fetchReports();
+      setView('LIST');
+    };
+
     return (
-      <div className="max-w-2xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-xl shadow">
+      <div className="max-w-3xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-xl shadow space-y-4">
         <h2 className="text-xl font-bold mb-4">ثبت گزارش آزمایشگاه</h2>
-        <div className="text-center text-gray-500 py-10">فرم آزمایشگاه در حال پیاده‌سازی است...</div>
-        <button onClick={() => setView('LIST')} className="bg-gray-200 px-4 py-2 rounded">بازگشت</button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <ShamsiDatePicker label="تاریخ گزارش" value={formData.report_date} onChange={v => setFormData(prev => ({ ...prev, report_date: v }))} />
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">شیفت</label>
+            <select className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" value={formData.shift} onChange={e => setFormData(prev => ({ ...prev, shift: e.target.value }))}>
+              <option value="A">شیفت A</option>
+              <option value="B">شیفت B</option>
+              <option value="C">شیفت C</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">کد نمونه *</label>
+            <input className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" value={formData.sample_code} onChange={e => setFormData(prev => ({ ...prev, sample_code: e.target.value }))} />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">محل نمونه‌برداری</label>
+            <input className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" value={formData.sample_location} onChange={e => setFormData(prev => ({ ...prev, sample_location: e.target.value }))} />
+          </div>
+          <input className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" placeholder="Fe %" value={formData.fe_percent} onChange={e => setFormData(prev => ({ ...prev, fe_percent: e.target.value }))} />
+          <input className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" placeholder="FeO %" value={formData.feo_percent} onChange={e => setFormData(prev => ({ ...prev, feo_percent: e.target.value }))} />
+          <input className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" placeholder="S %" value={formData.s_percent} onChange={e => setFormData(prev => ({ ...prev, s_percent: e.target.value }))} />
+          <input className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" placeholder="Moisture %" value={formData.moisture_percent} onChange={e => setFormData(prev => ({ ...prev, moisture_percent: e.target.value }))} />
+          <input className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" placeholder="Blaine" value={formData.blaine} onChange={e => setFormData(prev => ({ ...prev, blaine: e.target.value }))} />
+          <input className="w-full p-2 border rounded-lg bg-white dark:bg-gray-700" placeholder="Mesh Size" value={formData.mesh_size} onChange={e => setFormData(prev => ({ ...prev, mesh_size: e.target.value }))} />
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={submitForm} className="bg-primary text-white px-4 py-2 rounded-lg">ثبت نهایی</button>
+          <button onClick={() => setView('LIST')} className="bg-gray-200 px-4 py-2 rounded-lg">بازگشت</button>
+        </div>
       </div>
     );
   }

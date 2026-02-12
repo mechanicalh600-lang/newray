@@ -108,6 +108,8 @@ export interface ReportTemplate {
   isActive: boolean;
   createdAt?: string;
   updatedAt?: string;
+  createdBy?: string;
+  createdByUsername?: string;
   datasets?: ReportTemplateDataset[];
   parameters?: ReportTemplateParameter[];
   pageSettings?: ReportPageSettings;
@@ -323,7 +325,7 @@ export const getLatestReportTemplateByModule = (moduleId: string): ReportTemplat
 
 export const saveReportTemplate = (
   template: Omit<ReportTemplate, 'version' | 'isActive' | 'createdAt' | 'updatedAt'>,
-  options?: { activate?: boolean }
+  options?: { activate?: boolean; createdBy?: string; createdByUsername?: string }
 ) => {
   const targetModule = template.targetModule;
   const templates = getAllReportTemplates();
@@ -338,6 +340,8 @@ export const saveReportTemplate = (
     isActive: activate,
     createdAt: now,
     updatedAt: now,
+    createdBy: options?.createdBy || 'سیستم',
+    createdByUsername: options?.createdByUsername || undefined,
   } as ReportTemplate);
   let all = [...templates, next];
   if (activate) {
@@ -523,4 +527,243 @@ export const setRuntimeCache = (key: string, data: any, ttlSeconds = 120) => {
 export const clearRuntimeCache = () => {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(RUNTIME_CACHE_KEY);
+};
+
+const buildDefaultShiftReportTemplate = () => ({
+  id: '',
+  title: 'قالب پیش فرض گزارش شیفت',
+  targetModule: 'shiftreport',
+  elements: [
+    {
+      id: 'shift-header',
+      type: 'HEADER' as const,
+      layout: { x: 20, y: 20, width: 754, height: 120 },
+      band: 'reportHeader' as const,
+      props: {
+        titleProps: { text: 'شرکت توسعه معدنی و صنعتی صبانور', fontSize: 20, bold: true, color: '#800020', align: 'center' },
+        subtitleProps: { text: 'گزارش شیفت تولید کارخانه کنسانتره همدان', fontSize: 14, color: '#333333', align: 'center' },
+        detailsProps: {
+          items: [
+            { id: 'd1', label: 'کد رهگیری', value: 'tracking_code' },
+            { id: 'd2', label: 'تاریخ', value: 'shift_date' },
+            { id: 'd3', label: 'شیفت', value: 'shift_name' },
+            { id: 'd4', label: 'سرپرست', value: 'supervisor_name' },
+          ],
+          labelStyle: { fontSize: 10, color: '#4b5563' },
+          valueStyle: { fontSize: 10, color: '#111827', bold: true },
+          dividerStyle: 'dashed',
+        },
+        borderStyle: 'BOTTOM',
+        borderColor: '#800020',
+        borderWidth: 3,
+      },
+    },
+    {
+      id: 'shift-card-a',
+      type: 'STAT_CARD' as const,
+      layout: { x: 20, y: 160, width: 240, height: 100 },
+      band: 'detail' as const,
+      props: {
+        labelProps: { text: 'خوراک مصرفی خط A', fontSize: 12, bold: true, color: '#1d4ed8', align: 'center' },
+        valueProps: { fontSize: 24, bold: true, color: '#1e40af', align: 'center' },
+        unitProps: { text: 'تن', fontSize: 11, color: '#6b7280', align: 'center' },
+        valueField: 'total_production_a',
+        backgroundColor: '#eff6ff',
+        borderColor: '#bfdbfe',
+        borderWidth: 1,
+      },
+    },
+    {
+      id: 'shift-card-b',
+      type: 'STAT_CARD' as const,
+      layout: { x: 280, y: 160, width: 240, height: 100 },
+      band: 'detail' as const,
+      props: {
+        labelProps: { text: 'خوراک مصرفی خط B', fontSize: 12, bold: true, color: '#b91c1c', align: 'center' },
+        valueProps: { fontSize: 24, bold: true, color: '#991b1b', align: 'center' },
+        unitProps: { text: 'تن', fontSize: 11, color: '#6b7280', align: 'center' },
+        valueField: 'total_production_b',
+        backgroundColor: '#fef2f2',
+        borderColor: '#fecaca',
+        borderWidth: 1,
+      },
+    },
+    {
+      id: 'shift-meta',
+      type: 'TEXT' as const,
+      layout: { x: 540, y: 160, width: 234, height: 100 },
+      band: 'detail' as const,
+      props: {
+        textProps: {
+          text: 'نوع شیفت: {{shift_type}}\nسرپرست: {{supervisor_name}}',
+          fontSize: 12,
+          color: '#374151',
+          align: 'right',
+        },
+        backgroundColor: '#f9fafb',
+        borderColor: '#e5e7eb',
+        borderWidth: 1,
+      },
+    },
+    {
+      id: 'shift-main-table',
+      type: 'TABLE' as const,
+      layout: { x: 20, y: 280, width: 754, height: 150 },
+      band: 'detail' as const,
+      props: {
+        columns: [
+          { id: 'c1', key: 'tracking_code', header: 'کد گزارش', align: 'right' as const },
+          { id: 'c2', key: 'shift_date', header: 'تاریخ', align: 'center' as const },
+          { id: 'c3', key: 'shift_name', header: 'شیفت', align: 'center' as const },
+          { id: 'c4', key: 'shift_type', header: 'نوع شیفت', align: 'center' as const },
+          { id: 'c5', key: 'supervisor_name', header: 'سرپرست', align: 'right' as const },
+          { id: 'c6', key: 'total_production_a', header: 'خوراک A', align: 'center' as const },
+          { id: 'c7', key: 'total_production_b', header: 'خوراک B', align: 'center' as const },
+        ],
+        headerStyle: { bold: true, color: '#111827', backgroundColor: '#f3f4f6' },
+        rowStyle: { color: '#374151' },
+        showRowNumber: false,
+      },
+    },
+    {
+      id: 'shift-stop-reasons',
+      type: 'TEXT' as const,
+      layout: { x: 20, y: 450, width: 754, height: 96 },
+      band: 'detail' as const,
+      props: {
+        textProps: {
+          text: 'علت توقف خط A: {{downtime.lineA.reason}}\nعلت توقف خط B: {{downtime.lineB.reason}}',
+          fontSize: 12,
+          color: '#1f2937',
+          align: 'right',
+        },
+        backgroundColor: '#fffbeb',
+        borderColor: '#fde68a',
+        borderWidth: 1,
+      },
+    },
+    {
+      id: 'shift-next-actions',
+      type: 'TEXT' as const,
+      layout: { x: 20, y: 560, width: 754, height: 90 },
+      band: 'detail' as const,
+      props: {
+        textProps: {
+          text: 'اقدامات شیفت بعد: {{footer.nextShiftActions}}',
+          fontSize: 12,
+          color: '#14532d',
+          align: 'right',
+        },
+        backgroundColor: '#ecfdf5',
+        borderColor: '#86efac',
+        borderWidth: 1,
+      },
+    },
+  ],
+  pageSettings: {
+    size: 'A4' as const,
+    orientation: 'portrait' as const,
+    marginTop: 12,
+    marginRight: 12,
+    marginBottom: 12,
+    marginLeft: 12,
+    keepTogether: true,
+  },
+  governance: {
+    requiredRoles: [],
+    requiresApproval: false,
+    approvedBy: null,
+    approvedAt: null,
+  },
+});
+
+const buildGenericListTemplate = (moduleId: string, title: string) => ({
+  id: '',
+  title,
+  targetModule: moduleId,
+  elements: [
+    {
+      id: `${moduleId}-header`,
+      type: 'HEADER' as const,
+      layout: { x: 20, y: 20, width: 754, height: 110 },
+      band: 'reportHeader' as const,
+      props: {
+        titleProps: { text: 'سامانه یکپارچه گزارشات', fontSize: 18, bold: true, color: '#111827', align: 'center' },
+        subtitleProps: { text: title, fontSize: 13, color: '#374151', align: 'center' },
+        detailsProps: {
+          items: [
+            { id: 'g1', label: 'کد رهگیری', value: 'tracking_code' },
+            { id: 'g2', label: 'تاریخ', value: 'report_date' },
+          ],
+          labelStyle: { fontSize: 10, color: '#4b5563' },
+          valueStyle: { fontSize: 10, color: '#111827', bold: true },
+          dividerStyle: 'dashed',
+        },
+        borderStyle: 'BOTTOM',
+        borderColor: '#d1d5db',
+        borderWidth: 2,
+      },
+    },
+    {
+      id: `${moduleId}-table`,
+      type: 'TABLE' as const,
+      layout: { x: 20, y: 150, width: 754, height: 460 },
+      band: 'detail' as const,
+      props: {
+        columns: [],
+        headerStyle: { bold: true, color: '#111827', backgroundColor: '#f3f4f6' },
+        rowStyle: { color: '#374151' },
+        showRowNumber: false,
+      },
+    },
+  ],
+  pageSettings: {
+    size: 'A4' as const,
+    orientation: 'portrait' as const,
+    marginTop: 12,
+    marginRight: 12,
+    marginBottom: 12,
+    marginLeft: 12,
+    keepTogether: true,
+  },
+  governance: {
+    requiredRoles: [],
+    requiresApproval: false,
+    approvedBy: null,
+    approvedAt: null,
+  },
+});
+
+export const ensureDefaultShiftReportTemplate = () => {
+  if (typeof window === 'undefined') return null;
+  const existing = getTemplatesByModule('shiftreport');
+  if (existing.length > 0) return existing.find(t => t.isActive) || existing[0];
+  return saveReportTemplate(buildDefaultShiftReportTemplate() as any, { activate: true });
+};
+
+const DEFAULT_MODULE_TITLES: Record<string, string> = {
+  shiftreport: 'قالب پیش فرض گزارش شیفت',
+  productionreport: 'قالب پیش فرض گزارش تولید',
+  'control-room': 'قالب پیش فرض گزارش اتاق کنترل',
+  'lab-report': 'قالب پیش فرض گزارش آزمایشگاه',
+  'warehouse-report': 'قالب پیش فرض گزارش انبار',
+  'scale-report': 'قالب پیش فرض گزارش باسکول',
+  'hse-report': 'قالب پیش فرض گزارش HSE',
+};
+
+export const ensureDefaultReportTemplate = (moduleId: string, title?: string) => {
+  if (typeof window === 'undefined') return null;
+  const existing = getTemplatesByModule(moduleId);
+  if (existing.length > 0) return existing.find(t => t.isActive) || existing[0];
+  if (normalizeModuleId(moduleId) === normalizeModuleId('shiftreport')) {
+    return saveReportTemplate(buildDefaultShiftReportTemplate() as any, { activate: true });
+  }
+  const effectiveTitle = title || DEFAULT_MODULE_TITLES[moduleId] || `قالب پیش فرض ${moduleId}`;
+  return saveReportTemplate(buildGenericListTemplate(moduleId, effectiveTitle) as any, { activate: true });
+};
+
+export const ensureAllDefaultReportTemplates = () => {
+  Object.keys(DEFAULT_MODULE_TITLES).forEach(moduleId => {
+    ensureDefaultReportTemplate(moduleId, DEFAULT_MODULE_TITLES[moduleId]);
+  });
 };

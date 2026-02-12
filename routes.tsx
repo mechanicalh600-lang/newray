@@ -23,7 +23,9 @@ const Notes = React.lazy(() => import('./pages/Notes'));
 const WorkflowDesigner = React.lazy(() => import('./pages/WorkflowDesigner'));
 const Reports = React.lazy(() => import('./pages/Reports'));
 const ReportTemplateDesign = React.lazy(() => import('./pages/ReportTemplateDesign'));
+const ReportFormDesign = React.lazy(() => import('./pages/ReportFormDesign'));
 const ReportTemplatePreview = React.lazy(() => import('./pages/ReportTemplatePreview'));
+const DynamicReportRuntime = React.lazy(() => import('./pages/DynamicReportRuntime'));
 const ShiftHandover = React.lazy(() => import('./pages/ShiftHandover'));
 const ProductionReport = React.lazy(() => import('./pages/ProductionReport'));
 const WorkCalendar = React.lazy(() => import('./pages/WorkCalendar'));
@@ -41,6 +43,8 @@ const TrainingCourses = React.lazy(() => import('./pages/TrainingCourses'));
 const Integration = React.lazy(() => import('./pages/Integration'));
 const HSEReport = React.lazy(() => import('./pages/HSEReport'));
 const SystemConfig = React.lazy(() => import('./pages/SystemConfig'));
+const SoftwareErrors = React.lazy(() => import('./pages/SoftwareErrors'));
+const DataChangeTracking = React.lazy(() => import('./pages/DataChangeTracking'));
 
 export interface RouteConfig {
   path: string;
@@ -64,7 +68,9 @@ export const getRoutes = (
   { path: "/notes", element: user ? <Notes user={user} /> : null, protected: true },
   { path: "/reports", element: <Reports />, protected: true },
   { path: "/report-template-design", element: <ReportTemplateDesign />, protected: true, adminOnly: true },
+  { path: "/report-form-design", element: <ReportFormDesign />, protected: true, adminOnly: true },
   { path: "/report-template-preview", element: <ReportTemplatePreview />, protected: true },
+  { path: "/reports/:slug", element: <DynamicReportRuntime />, protected: true },
   
   // Reports Group
   { path: "/control-room", element: user ? <ControlRoomReport user={user} /> : null, protected: true },
@@ -93,6 +99,8 @@ export const getRoutes = (
   { path: "/admin/:tab", element: <AdminPanel />, protected: true, adminOnly: true },
   { path: "/settings", element: user ? <Settings user={user} onUpdateUser={onUpdateUser} snowMode={snowMode} setSnowMode={setSnowMode} /> : null, protected: true },
   { path: "/system-config", element: <SystemConfig />, protected: true, adminOnly: true },
+  { path: "/software-errors", element: <SoftwareErrors />, protected: true, adminOnly: true },
+  { path: "/data-change-tracking", element: <DataChangeTracking />, protected: true, adminOnly: true },
 
   // Modules
   { path: "/pm-scheduler", element: user ? <PMScheduler user={user} /> : null, protected: true },

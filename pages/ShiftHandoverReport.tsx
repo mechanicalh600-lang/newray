@@ -4,7 +4,7 @@ import { ArrowRight, Share2, Download, Printer, Users, UserCheck, UserX, Calenda
 import { 
     ResponsiveContainer, PieChart, Pie, Cell, BarChart, CartesianGrid, XAxis, YAxis, Bar, Legend, LineChart, Line, Tooltip
 } from 'recharts';
-import { SHIFT_TYPE_MAP, parseTimeToMinutes, PRODUCTION_TIMES, THICKENER_TIMES } from './ShiftHandoverTypes';
+import { SHIFT_TYPE_MAP, parseTimeToMinutes, getProductionTimes, THICKENER_TIMES } from './ShiftHandoverTypes';
 import { parseShamsiDate } from '../utils';
 
 interface ShiftReportViewProps {
@@ -33,7 +33,8 @@ export const ShiftReportView: React.FC<ShiftReportViewProps> = ({ reportData, ad
     const chartDataA = [{ name: 'کارکرد', value: lineAWork, color: '#22c55e' }, { name: 'توقف', value: lineAStop, color: '#ef4444' }];
     const chartDataB = [{ name: 'کارکرد', value: lineBWork, color: '#22c55e' }, { name: 'توقف', value: lineBStop, color: '#ef4444' }];
 
-    const barChartData = PRODUCTION_TIMES.map(t => ({
+    const productionTimes = getProductionTimes(reportData.shiftInfo?.type || 'Day1');
+    const barChartData = productionTimes.map(t => ({
         time: t,
         lineA: reportData.production?.lineA?.[t] || 0,
         lineB: reportData.production?.lineB?.[t] || 0

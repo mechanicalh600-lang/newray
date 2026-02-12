@@ -104,6 +104,60 @@ create table if not exists shift_reports (
   created_at timestamptz default now()
 );
 
+-- طراحی فرم‌های گزارش (داینامیک)
+create table if not exists report_definitions (
+  id uuid default gen_random_uuid() primary key,
+  slug text unique not null,
+  title text not null,
+  category text default 'گزارشات',
+  is_active boolean default true,
+  form_schema jsonb default '{"fields":[]}'::jsonb,
+  list_schema jsonb default '{"columns":[]}'::jsonb,
+  template_schema jsonb default '{}'::jsonb,
+  data_source jsonb default '{"mode":"generic","table":"report_records"}'::jsonb,
+  version int default 1,
+  published_version int default 0,
+  created_by text,
+  updated_by text,
+  created_at timestamptz default now()
+);
+
+-- رکوردهای گزارشات داینامیک
+create table if not exists report_records (
+  id uuid default gen_random_uuid() primary key,
+  definition_id uuid references report_definitions(id) on delete cascade,
+  tracking_code text,
+  report_date text,
+  payload jsonb default '{}'::jsonb,
+  payload_version int default 1,
+  created_by text,
+  updated_by text,
+  created_at timestamptz default now()
+);
+
+-- جدول گزارشات تولید روزانه
+create table if not exists production_reports (
+  id uuid default gen_random_uuid() primary key,
+  tracking_code text unique,
+  report_date text,
+  total_production numeric default 0,
+  status text default 'DRAFT',
+  full_data jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+-- جدول گزارشات اتاق کنترل
+create table if not exists control_room_reports (
+  id uuid default gen_random_uuid() primary key,
+  tracking_code text unique,
+  report_date text,
+  shift text,
+  operator_name text,
+  status text default 'DRAFT',
+  full_data jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
 -- جدول برنامه و بودجه تولید
 create table if not exists production_plans (
   id uuid default gen_random_uuid() primary key,

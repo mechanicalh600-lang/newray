@@ -32,7 +32,9 @@ const Notes = React.lazy(() => import('./pages/Notes'));
 const WorkflowDesigner = React.lazy(() => import('./pages/WorkflowDesigner'));
 const Reports = React.lazy(() => import('./pages/Reports'));
 const ReportTemplateDesign = React.lazy(() => import('./pages/ReportTemplateDesign'));
+const ReportFormDesign = React.lazy(() => import('./pages/ReportFormDesign'));
 const ReportTemplatePreview = React.lazy(() => import('./pages/ReportTemplatePreview'));
+const DynamicReportRuntime = React.lazy(() => import('./pages/DynamicReportRuntime'));
 const ShiftHandover = React.lazy(() => import('./pages/ShiftHandover'));
 const ProductionReport = React.lazy(() => import('./pages/ProductionReport'));
 const WorkCalendar = React.lazy(() => import('./pages/WorkCalendar'));
@@ -50,6 +52,9 @@ const TrainingCourses = React.lazy(() => import('./pages/TrainingCourses'));
 const Integration = React.lazy(() => import('./pages/Integration'));
 const HSEReport = React.lazy(() => import('./pages/HSEReport'));
 const SystemConfig = React.lazy(() => import('./pages/SystemConfig'));
+const DataEntryToolSettings = React.lazy(() => import('./pages/DataEntryToolSettings'));
+const SoftwareErrors = React.lazy(() => import('./pages/SoftwareErrors'));
+const DataChangeTracking = React.lazy(() => import('./pages/DataChangeTracking'));
 
 // Loading Fallback Component
 const PageLoader = () => (
@@ -83,19 +88,55 @@ const App: React.FC = () => {
 
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const safeInsertSystemLog = useCallback(async (payload: any) => {
+    try {
+      const { error } = await supabase.from('system_logs').insert([payload]);
+      if (!error) return;
+
+      // If user_id is not linked to app_users (FK violation), retry without user_id.
+      if (error.code === '23503') {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.user_id;
+        await supabase.from('system_logs').insert([fallbackPayload]);
+        return;
+      }
+
+      throw error;
+    } catch (e) {
+      // Keep app flow stable; logging must never block user actions.
+      console.warn('System log insert skipped:', e);
+    }
+  }, []);
+
   useEffect(() => {
       const fetchSettings = async () => {
           try {
-              const { data } = await supabase.from('app_settings').select('session_timeout_minutes').single();
-              if (data && data.session_timeout_minutes) {
-                  setInactivityLimit(data.session_timeout_minutes * 60000);
+              const { data, error } = await supabase
+                .from('app_settings')
+                .select('session_timeout_minutes, org_logo')
+                .order('created_at', { ascending: true })
+                .limit(1);
+              if (error) throw error;
+              const row = Array.isArray(data) ? data[0] : null;
+              if (row && row.session_timeout_minutes) {
+                  setInactivityLimit(row.session_timeout_minutes * 60000);
+              }
+              if (
+                row?.org_logo &&
+                user &&
+                String(user.username || '').toLowerCase() === 'admin' &&
+                !user.avatar
+              ) {
+                const next = { ...user, avatar: row.org_logo };
+                setUser(next);
+                localStorage.setItem('currentUser', JSON.stringify(next));
               }
           } catch (e) {
               console.warn("Failed to fetch settings, using defaults.");
           }
       };
       fetchSettings();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
       const lastActivity = localStorage.getItem('lastActivityTime');
@@ -117,16 +158,14 @@ const App: React.FC = () => {
   const handleLogout = useCallback(async (isAuto = false) => {
     if (user) {
         const ip = await getPublicIp();
-        try {
-            await supabase.from('system_logs').insert([{
-                user_id: user.id,
-                user_name: user.fullName,
-                personnel_code: user.personnelCode || '---',
-                action: isAuto ? 'خروج خودکار (عدم فعالیت)' : 'خروج از سیستم',
-                ip_address: ip,
-                details: `Logout Time: ${getShamsiDate()} ${getTime()}`
-            }]);
-        } catch (error) {}
+        await safeInsertSystemLog({
+          user_id: user.id,
+          user_name: user.fullName,
+          personnel_code: user.personnelCode || '---',
+          action: isAuto ? 'خروج خودکار (عدم فعالیت)' : 'خروج از سیستم',
+          ip_address: ip,
+          details: `Logout Time: ${getShamsiDate()} ${getTime()}`
+        });
         const theme = localStorage.getItem('theme');
         const snow = localStorage.getItem('snowMode');
         localStorage.clear();
@@ -135,7 +174,7 @@ const App: React.FC = () => {
     }
     setUser(null);
     if (isAuto) alert(`کاربر گرامی، به دلیل عدم فعالیت بیش از ${Math.round(inactivityLimit/60000)} دقیقه، جهت امنیت از سیستم خارج شدید.`);
-  }, [user, inactivityLimit]);
+  }, [user, inactivityLimit, safeInsertSystemLog]);
 
   const resetInactivityTimer = useCallback(() => {
     if (!user) return;
@@ -174,17 +213,15 @@ const App: React.FC = () => {
     setUser(newUser);
     localStorage.setItem('currentUser', JSON.stringify(newUser));
     localStorage.setItem('lastActivityTime', Date.now().toString());
-    try {
-        const ip = await getPublicIp();
-        await supabase.from('system_logs').insert([{
-            user_id: newUser.id,
-            user_name: newUser.fullName,
-            personnel_code: newUser.personnelCode || (newUser.username === 'admin' ? '9999' : '0000'),
-            action: 'ورود به سیستم',
-            ip_address: ip,
-            details: `Role: ${newUser.role}`
-        }]);
-    } catch (error) {}
+    const ip = await getPublicIp();
+    await safeInsertSystemLog({
+      user_id: newUser.id,
+      user_name: newUser.fullName,
+      personnel_code: newUser.personnelCode || (newUser.username === 'admin' ? '9999' : '0000'),
+      action: 'ورود به سیستم',
+      ip_address: ip,
+      details: `Role: ${newUser.role}`
+    });
   };
 
   const handleUpdateUser = (updatedUser: User) => {
@@ -216,7 +253,9 @@ const App: React.FC = () => {
                 <Route path="/notes" element={user ? <Notes user={user} /> : <Navigate to="/login" />} />
                 <Route path="/reports" element={user ? <Reports /> : <Navigate to="/login" />} />
                 <Route path="/report-template-design" element={user ? <ReportTemplateDesign /> : <Navigate to="/login" />} />
+                <Route path="/report-form-design" element={user?.role === UserRole.ADMIN ? <ReportFormDesign user={user} /> : <Navigate to="/" />} />
                 <Route path="/report-template-preview" element={user ? <ReportTemplatePreview /> : <Navigate to="/login" />} />
+                <Route path="/reports/:slug" element={user ? <DynamicReportRuntime user={user} /> : <Navigate to="/login" />} />
                 
                 {/* Reports Group Routes */}
                 <Route path="/control-room" element={user ? <ControlRoomReport user={user} /> : <Navigate to="/login" />} />
@@ -247,6 +286,9 @@ const App: React.FC = () => {
                 
                 {/* System Config */}
                 <Route path="/system-config" element={user?.role === UserRole.ADMIN ? <SystemConfig /> : <Navigate to="/" />} />
+                <Route path="/data-entry-tool-settings" element={user?.role === UserRole.ADMIN ? <DataEntryToolSettings /> : <Navigate to="/" />} />
+                <Route path="/software-errors" element={user?.role === UserRole.ADMIN ? <SoftwareErrors /> : <Navigate to="/" />} />
+                <Route path="/data-change-tracking" element={user?.role === UserRole.ADMIN ? <DataChangeTracking /> : <Navigate to="/" />} />
 
                 {/* NEW MODULES */}
                 <Route path="/pm-scheduler" element={user ? <PMScheduler user={user} /> : <Navigate to="/login" />} />

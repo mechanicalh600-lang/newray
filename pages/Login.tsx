@@ -33,10 +33,27 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   // SQL Modal
   const [showSql, setShowSql] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [orgLogo, setOrgLogo] = useState<string>('');
 
   useEffect(() => {
     checkConnection();
+    loadOrgLogo();
   }, []);
+
+  const loadOrgLogo = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('org_logo')
+        .order('created_at', { ascending: true })
+        .limit(1);
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : null;
+      setOrgLogo(row?.org_logo || '');
+    } catch {
+      setOrgLogo('');
+    }
+  };
 
   const checkConnection = async () => {
     setConnectionStatus('checking');
@@ -87,7 +104,8 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     fullName: 'مدیر سیستم',
     role: UserRole.ADMIN,
     passwordHash: '12381',
-    isDefaultPassword: false 
+    isDefaultPassword: false,
+    avatar: orgLogo || undefined,
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -143,7 +161,10 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
             passwordHash: '***',
             isDefaultPassword: data.is_default_password,
             personnelCode: data.personnel?.personnel_code,
-            avatar: data.avatar || data.personnel?.profile_picture
+            avatar:
+              data.avatar ||
+              data.personnel?.profile_picture ||
+              (String(data.username || '').toLowerCase() === 'admin' ? orgLogo || undefined : undefined),
         };
 
         if (dbUser.isDefaultPassword) {
