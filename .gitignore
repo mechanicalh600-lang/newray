@@ -1,4 +1,7 @@
 
+# Font with brackets breaks Liara extraction - use Vazirmatn-wght.woff2
+public/fonts/Vazirmatn\[wght\].woff2
+
 # Logs
 logs
 *.log
@@ -72,7 +75,6 @@ typings/
 
 # dotenv environment variables file
 .env
-.env.local
 .env.test
 .env.production
 
@@ -87,6 +89,8 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+liara-build-temp
+liara
 
 # Gatsby files
 .cache/
