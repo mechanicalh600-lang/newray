@@ -9,10 +9,11 @@ const __dirname = dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
-  base: '/', 
+  // مسیر مطلق از ریشه تا سرور لیارا درست فایل‌های assets را سرو کند
+  base: process.env.VITE_BASE_URL ?? '/', 
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
+      '@': resolve(__dirname, '.'),
     },
   },
   build: {

@@ -26,7 +26,7 @@ export const Settings: React.FC<SettingsProps> = ({ user, onUpdateUser, snowMode
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="w-full max-w-full space-y-6">
        <h1 className="text-2xl font-bold">تنظیمات کاربری</h1>
        
        <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6">

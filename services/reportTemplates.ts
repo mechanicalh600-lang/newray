@@ -358,9 +358,10 @@ export const setActiveTemplate = (templateId: string) => {
   const templates = getAllReportTemplates();
   const target = templates.find(t => t.id === templateId);
   if (!target) return;
+  const now = new Date().toISOString();
   const next = templates.map(t => {
     if (normalizeModuleId(t.targetModule) !== normalizeModuleId(target.targetModule)) return t;
-    return { ...t, isActive: t.id === templateId, updatedAt: new Date().toISOString() };
+    return { ...t, isActive: t.id === templateId, updatedAt: t.id === templateId ? now : (t.updatedAt ?? t.createdAt ?? now) };
   });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   appendAuditLog('set_active', target);
@@ -531,7 +532,7 @@ export const clearRuntimeCache = () => {
 
 const buildDefaultShiftReportTemplate = () => ({
   id: '',
-  title: 'قالب پیش فرض گزارش شیفت',
+  title: 'قالب گزارش شیفت',
   targetModule: 'shiftreport',
   elements: [
     {
@@ -595,7 +596,7 @@ const buildDefaultShiftReportTemplate = () => ({
       band: 'detail' as const,
       props: {
         textProps: {
-          text: 'نوع شیفت: {{shift_type}}\nسرپرست: {{supervisor_name}}',
+          text: 'نوبت کاری: {{shift_type}}\nسرپرست: {{supervisor_name}}',
           fontSize: 12,
           color: '#374151',
           align: 'right',
@@ -615,10 +616,10 @@ const buildDefaultShiftReportTemplate = () => ({
           { id: 'c1', key: 'tracking_code', header: 'کد گزارش', align: 'right' as const },
           { id: 'c2', key: 'shift_date', header: 'تاریخ', align: 'center' as const },
           { id: 'c3', key: 'shift_name', header: 'شیفت', align: 'center' as const },
-          { id: 'c4', key: 'shift_type', header: 'نوع شیفت', align: 'center' as const },
-          { id: 'c5', key: 'supervisor_name', header: 'سرپرست', align: 'right' as const },
-          { id: 'c6', key: 'total_production_a', header: 'خوراک A', align: 'center' as const },
-          { id: 'c7', key: 'total_production_b', header: 'خوراک B', align: 'center' as const },
+          { id: 'c4', key: 'shift_type', header: 'نوبت کاری', align: 'center' as const },
+          { id: 'c5', key: 'supervisor_name', header: 'سرپرست شیفت', align: 'right' as const },
+          { id: 'c6', key: 'total_production_a', header: 'خوراک خط A', align: 'center' as const },
+          { id: 'c7', key: 'total_production_b', header: 'خوراک خط B', align: 'center' as const },
         ],
         headerStyle: { bold: true, color: '#111827', backgroundColor: '#f3f4f6' },
         rowStyle: { color: '#374151' },
@@ -742,7 +743,7 @@ export const ensureDefaultShiftReportTemplate = () => {
 };
 
 const DEFAULT_MODULE_TITLES: Record<string, string> = {
-  shiftreport: 'قالب پیش فرض گزارش شیفت',
+  shiftreport: 'قالب گزارش شیفت',
   productionreport: 'قالب پیش فرض گزارش تولید',
   'control-room': 'قالب پیش فرض گزارش اتاق کنترل',
   'lab-report': 'قالب پیش فرض گزارش آزمایشگاه',

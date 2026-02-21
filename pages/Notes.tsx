@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { User, Note } from '../types';
 import { supabase } from '../supabaseClient';
-import { StickyNote, Plus, Search, Tag, Calendar, Clock, X, Trash2, CheckCircle, Edit3, Loader2, Save, Filter } from 'lucide-react';
+import { StickyNote, Plus, Search, Tag, Calendar, Clock, X, Trash2, CheckCircle, Circle, Edit3, Loader2, Save, Filter, Bell } from 'lucide-react';
 import { ShamsiDatePicker } from '../components/ShamsiDatePicker';
 import { ClockTimePicker } from '../components/ClockTimePicker';
-import { generateId, getShamsiDate } from '../utils';
+import { generateId, getShamsiDate, getTime, toPersianDigits, compareShamsiDateTime } from '../utils';
 
 interface Props {
   user: User;
@@ -68,28 +68,42 @@ export const Notes: React.FC<Props> = ({ user }) => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingNote.title) return;
+    if (!editingNote.title?.trim()) {
+      alert('عنوان یادداشت را وارد کنید.');
+      return;
+    }
+    if (!user?.id) {
+      alert('کاربر وارد نشده است. لطفاً دوباره لاگین کنید.');
+      return;
+    }
 
     try {
-      const payload = {
+      const hasReminder = !!editingNote.reminderDate?.trim();
+      const payload: Record<string, unknown> = {
         user_id: user.id,
-        title: editingNote.title,
-        content: editingNote.content,
+        title: (editingNote.title || '').trim(),
+        content: editingNote.content || '',
         tags: editingNote.tags || [],
-        reminder_date: editingNote.reminderDate,
-        reminder_time: editingNote.reminderTime,
+        reminder_date: editingNote.reminderDate || null,
+        reminder_time: editingNote.reminderTime || null,
         is_completed: editingNote.isCompleted || false
       };
+      if (hasReminder) payload.reminder_dismissed = false;
 
       if (editingNote.id) {
-        await supabase.from('personal_notes').update(payload).eq('id', editingNote.id);
+        const { error } = await supabase.from('personal_notes').update(payload).eq('id', editingNote.id);
+        if (error) throw error;
       } else {
-        await supabase.from('personal_notes').insert([payload]);
+        const { error } = await supabase.from('personal_notes').insert([payload]);
+        if (error) throw error;
       }
       setIsModalOpen(false);
+      setEditingNote({});
       fetchNotes();
-    } catch (e) {
-      alert('Error saving note');
+      if (payload.reminder_date) window.dispatchEvent(new Event('notes-reminder-saved'));
+    } catch (e: any) {
+      console.error('ذخیره یادداشت:', e);
+      alert('خطا در ذخیره یادداشت: ' + (e?.message || e?.error_description || 'خطای ناشناخته'));
     }
   };
 
@@ -107,7 +121,7 @@ export const Notes: React.FC<Props> = ({ user }) => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto pb-20 p-4">
+    <div className="w-full max-w-full pb-20 p-4">
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-2">
           <StickyNote className="w-8 h-8 text-primary" />
@@ -173,8 +187,21 @@ export const Notes: React.FC<Props> = ({ user }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {loading ? <div className="col-span-3 text-center p-10"><Loader2 className="w-8 h-8 animate-spin mx-auto"/></div> : 
-         filteredNotes.map(note => (
-          <div key={note.id} className={`bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border transition hover:shadow-md ${note.isCompleted ? 'opacity-70' : ''}`}>
+         filteredNotes.map(note => {
+          const hasReminder = !!(note.reminderDate || '').trim();
+          const isOverdue = hasReminder && !note.isCompleted && compareShamsiDateTime(
+            note.reminderDate || '', note.reminderTime || '00:00',
+            getShamsiDate(), getTime()
+          ) <= 0;
+          const cardBg = note.isCompleted
+            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/50'
+            : isOverdue
+              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700/50'
+              : hasReminder
+                ? 'bg-cyan-50 dark:bg-cyan-900/20 border-cyan-200 dark:border-cyan-800/50'
+                : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700';
+          return (
+          <div key={note.id} className={`${cardBg} p-4 rounded-xl shadow-sm border transition hover:shadow-md ${note.isCompleted ? 'opacity-90' : ''}`}>
             <div className="flex justify-between items-start mb-2">
               <h3 className={`font-bold text-lg ${note.isCompleted ? 'line-through text-gray-500' : ''}`}>{note.title}</h3>
               <div className="flex gap-1">
@@ -187,18 +214,26 @@ export const Notes: React.FC<Props> = ({ user }) => {
             <div className="flex justify-between items-center mt-auto">
               <div className="flex gap-2">
                 {note.reminderDate && (
-                  <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded flex items-center gap-1">
-                    <Calendar className="w-3 h-3"/> {note.reminderDate} {note.reminderTime}
+                  <span className="text-xs bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400 px-2 py-1 rounded flex items-center gap-1 font-medium font-sans">
+                    <Calendar className="w-3 h-3 flex-shrink-0"/>
+                    {note.reminderTime ? (
+                      <>
+                        {toPersianDigits(note.reminderTime)}
+                        <span className="text-cyan-500 mx-1">|</span>
+                      </>
+                    ) : null}
+                    {toPersianDigits(note.reminderDate)}
                   </span>
                 )}
                 {note.tags?.map(t => <span key={t} className="text-xs bg-gray-100 px-2 py-1 rounded">#{t}</span>)}
               </div>
               <button onClick={() => toggleComplete(note)} className={`p-1.5 rounded-full ${note.isCompleted ? 'text-green-600 bg-green-50' : 'text-gray-400 hover:text-green-600'}`}>
-                <CheckCircle className="w-6 h-6"/>
+                {note.isCompleted ? <CheckCircle className="w-6 h-6" /> : <Circle className="w-6 h-6" />}
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {isModalOpen && (
@@ -207,9 +242,15 @@ export const Notes: React.FC<Props> = ({ user }) => {
             <h3 className="font-bold text-lg">{editingNote.id ? 'ویرایش یادداشت' : 'یادداشت جدید'}</h3>
             <input required placeholder="عنوان" className="w-full p-3 border rounded-xl dark:bg-gray-700" value={editingNote.title || ''} onChange={e => setEditingNote({...editingNote, title: e.target.value})} />
             <textarea placeholder="متن یادداشت..." className="w-full p-3 border rounded-xl dark:bg-gray-700 h-32" value={editingNote.content || ''} onChange={e => setEditingNote({...editingNote, content: e.target.value})} />
-            <div className="grid grid-cols-2 gap-4">
-              <ShamsiDatePicker label="تاریخ یادآوری" value={editingNote.reminderDate || ''} onChange={d => setEditingNote({...editingNote, reminderDate: d})} />
-              <ClockTimePicker label="ساعت" value={editingNote.reminderTime || ''} onChange={t => setEditingNote({...editingNote, reminderTime: t})} />
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm font-medium">
+                <Bell className="w-4 h-4" />
+                <span>اعلان هشدار</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <ShamsiDatePicker label="تاریخ یادآوری" value={editingNote.reminderDate || ''} onChange={d => setEditingNote({...editingNote, reminderDate: d})} disableFuture={false} />
+                <ClockTimePicker label="ساعت" value={editingNote.reminderTime || ''} onChange={t => setEditingNote({...editingNote, reminderTime: t})} />
+              </div>
             </div>
             <div className="flex justify-end gap-2 pt-4">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border rounded-lg">انصراف</button>

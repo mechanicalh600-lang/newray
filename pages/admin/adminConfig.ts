@@ -1,6 +1,8 @@
 
 // لیست جداول مطابق با ساختار دیتابیس
 export type EntityType = 
+  | 'shifts'
+  | 'shift_types'
   | 'user_groups' 
   | 'personnel' 
   | 'org_chart'
@@ -18,13 +20,19 @@ export type EntityType =
   | 'part_categories_sub'
   | 'part_categories_sub_sub'
   | 'parts' 
+  | 'work_activity_types'
+  | 'work_types'
+  | 'work_order_priorities'
   | 'activity_cards' 
   | 'checklist_items' 
   | 'maintenance_plans'
-  | 'production_plans';
+  | 'production_plans'
+  | 'work_order_status';
 
 // ترتیب نمایش تب‌ها
 export const ORDERED_TABS: EntityType[] = [
+  'shifts',
+  'shift_types',
   'user_groups',
   'personnel',
   'org_chart',
@@ -43,12 +51,18 @@ export const ORDERED_TABS: EntityType[] = [
   'part_categories_sub',
   'part_categories_sub_sub',
   'parts',
+  'work_activity_types',
+  'work_types',
+  'work_order_priorities',
   'activity_cards',
   'checklist_items',
-  'maintenance_plans'
+  'maintenance_plans',
+  'work_order_status'
 ];
 
 export const TABLE_LABELS: Record<EntityType, string> = {
+  shifts: 'شیفت',
+  shift_types: 'نوبت کاری',
   user_groups: 'گروه‌های کاربری',
   personnel: 'پرسنل',
   org_chart: 'چارت سازمانی',
@@ -66,10 +80,14 @@ export const TABLE_LABELS: Record<EntityType, string> = {
   part_categories_sub: 'گروه فرعی قطعات',
   part_categories_sub_sub: 'گروه فرعیِ فرعی قطعات',
   parts: 'قطعات',
+  work_activity_types: 'نوع فعالیت',
+  work_types: 'نوع کار',
+  work_order_priorities: 'اولویت انجام',
   activity_cards: 'کارت فعالیت‌ها',
   checklist_items: 'آیتم‌های چک‌لیست',
   maintenance_plans: 'پلن‌های نت',
-  production_plans: 'برنامه و بودجه تولید'
+  production_plans: 'برنامه و بودجه تولید',
+  work_order_status: 'وضعیت دستور کار'
 };
 
 // لیست فیلدهای اجباری برای نمایش ستاره قرمز
@@ -81,6 +99,17 @@ export const MANDATORY_FIELDS: string[] = [
 ];
 
 export const COLUMNS_MAP: Record<EntityType, any[]> = {
+    shifts: [
+      { key: 'code', header: 'کد شیفت' },
+      { key: 'name', header: 'نام شیفت' },
+      { key: 'sort_order', header: 'ترتیب' },
+    ],
+    shift_types: [
+      { key: 'code', header: 'کد' },
+      { key: 'title', header: 'عنوان' },
+      { key: 'value', header: 'مقدار' },
+      { key: 'sort_order', header: 'ترتیب' },
+    ],
     user_groups: [
       { key: 'code', header: 'کد گروه' },
       { key: 'name', header: 'نام گروه' },
@@ -90,7 +119,6 @@ export const COLUMNS_MAP: Record<EntityType, any[]> = {
       { key: 'full_name', header: 'نام و نام خانوادگی' },
       { key: 'unit', header: 'واحد' },
       { key: 'mobile', header: 'موبایل' },
-      { key: 'hourly_rate', header: 'نرخ ساعتی (ریال)' },
     ],
     app_users: [
       { key: 'username', header: 'نام کاربری' },
@@ -167,8 +195,25 @@ export const COLUMNS_MAP: Record<EntityType, any[]> = {
        { key: 'name', header: 'نام قطعه' },
        { key: 'current_stock', header: 'موجودی' },
        { key: 'min_stock', header: 'نقطه سفارش' },
-       { key: 'location_in_warehouse', header: 'محل انبار' },
+       { key: 'reorder_quantity', header: 'تعداد سفارش' },
+       { key: 'warehouse_row', header: 'ردیف انبار' },
+       { key: 'shelf', header: 'قفسه' },
        { key: 'unit_price', header: 'قیمت (ریال)' },
+    ],
+    work_activity_types: [
+      { key: 'code', header: 'کد' },
+      { key: 'name', header: 'نام نوع فعالیت' },
+      { key: 'sort_order', header: 'ترتیب' },
+    ],
+    work_types: [
+      { key: 'code', header: 'کد' },
+      { key: 'name', header: 'نام نوع کار' },
+      { key: 'sort_order', header: 'ترتیب' },
+    ],
+    work_order_priorities: [
+      { key: 'code', header: 'کد' },
+      { key: 'name', header: 'نام اولویت' },
+      { key: 'sort_order', header: 'ترتیب' },
     ],
     activity_cards: [
         { key: 'code', header: 'کد کارت' },
@@ -183,6 +228,10 @@ export const COLUMNS_MAP: Record<EntityType, any[]> = {
         { key: 'code', header: 'کد پلن' },
         { key: 'name', header: 'نام پلن' },
         { key: 'equipment_id', header: 'تجهیز (ID)' },
+    ],
+    work_order_status: [
+      { key: 'code', header: 'کد' },
+      { key: 'name', header: 'نام' },
     ],
     production_plans: [
         { key: 'year', header: 'سال' },

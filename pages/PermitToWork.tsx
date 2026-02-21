@@ -23,6 +23,10 @@ export const PermitToWork: React.FC<{ user: User }> = ({ user }) => {
   const HAZARDS = ['گازهای قابل اشتعال', 'خطر برق‌گرفتگی', 'سقوط از ارتفاع', 'کمبود اکسیژن', 'مواد شیمیایی'];
   const PRECAUTIONS = ['ایزولاسیون الکتریکی', 'تهویه مناسب', 'استفاده از کمربند ایمنی', 'حضور نفر کمکی', 'کپسول آتش‌نشانی'];
 
+  const toggleItem = (arr: string[], item: string, setter: (v: string[]) => void) => {
+      setter(arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item]);
+  };
+
   useEffect(() => {
       fetchPermits();
       fetchMasterData('equipment').then(setEquipmentList);
@@ -63,9 +67,10 @@ export const PermitToWork: React.FC<{ user: User }> = ({ user }) => {
               status: 'PENDING'
           });
           setIsModalOpen(false);
+          setNewPermit({ type: 'HOT_WORK', equipmentId: '', hazards: [], precautions: [], startTime: '', endTime: '' });
           fetchPermits();
           alert(`مجوز کار با شماره ${code} صادر شد.`);
-      } catch (e) { alert('خطا'); }
+      } catch (e: any) { alert('خطا: ' + (e?.message || 'خطا در صدور مجوز')); }
   };
 
   const getPermitLabel = (type: string) => {
@@ -128,18 +133,62 @@ export const PermitToWork: React.FC<{ user: User }> = ({ user }) => {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                <form onSubmit={handleSave} className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl p-6 space-y-6 max-h-[90vh] overflow-y-auto animate-scaleIn">
                   <div className="flex justify-between items-center border-b dark:border-gray-700 pb-4">
-                      <h3 className="font-bold text-lg flex items-center gap-2"><ShieldCheck className="w-6 h-6 text-green-600"/> صدور پرمیت جدید</h3>
+                      <h3 className="font-bold text-lg flex items-center gap-2 text-gray-800 dark:text-white"><ShieldCheck className="w-6 h-6 text-green-600"/> صدور پرمیت جدید</h3>
                       <button type="button" onClick={() => setIsModalOpen(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><X className="w-5 h-5"/></button>
                   </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div><label className="block text-sm mb-1">نوع مجوز</label><select className="w-full p-2.5 border rounded-xl dark:bg-gray-700" value={newPermit.type} onChange={e => setNewPermit({...newPermit, type: e.target.value})}><option value="HOT_WORK">کار گرم</option><option value="COLD_WORK">کار سرد</option><option value="HEIGHT">کار در ارتفاع</option><option value="CONFINED_SPACE">فضای بسته</option></select></div>
-                      <div><label className="block text-sm mb-1">تجهیز</label><select className="w-full p-2.5 border rounded-xl dark:bg-gray-700" value={newPermit.equipmentId} onChange={e => setNewPermit({...newPermit, equipmentId: e.target.value})}><option value="">انتخاب...</option>{equipmentList.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></div>
-                      <div><ClockTimePicker label="ساعت شروع" value={newPermit.startTime} onChange={t => setNewPermit({...newPermit, startTime: t})} /></div>
-                      <div><ClockTimePicker label="ساعت پایان" value={newPermit.endTime} onChange={t => setNewPermit({...newPermit, endTime: t})} /></div>
+                      <div>
+                          <label className="block text-sm mb-1 font-medium text-gray-700 dark:text-gray-300">نوع مجوز</label>
+                          <select className="w-full p-2.5 border rounded-xl dark:bg-gray-700 outline-none focus:ring-2 focus:ring-primary" value={newPermit.type} onChange={e => setNewPermit({...newPermit, type: e.target.value})}>
+                              <option value="HOT_WORK">کار گرم (برشکاری/جوشکاری)</option>
+                              <option value="COLD_WORK">کار سرد (تعمیرات عمومی)</option>
+                              <option value="HEIGHT">کار در ارتفاع</option>
+                              <option value="CONFINED_SPACE">فضای بسته</option>
+                              <option value="ELECTRICAL">کار روی برق (ایزولاسیون)</option>
+                          </select>
+                      </div>
+                      <div>
+                          <label className="block text-sm mb-1 font-medium text-gray-700 dark:text-gray-300">تجهیز / محل کار</label>
+                          <select className="w-full p-2.5 border rounded-xl dark:bg-gray-700 outline-none focus:ring-2 focus:ring-primary" value={newPermit.equipmentId} onChange={e => setNewPermit({...newPermit, equipmentId: e.target.value})}>
+                              <option value="">انتخاب تجهیز...</option>
+                              {equipmentList.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                          </select>
+                      </div>
+                      <div>
+                          <ClockTimePicker label="ساعت شروع" value={newPermit.startTime} onChange={t => setNewPermit({...newPermit, startTime: t})} />
+                      </div>
+                      <div>
+                          <ClockTimePicker label="ساعت پایان" value={newPermit.endTime} onChange={t => setNewPermit({...newPermit, endTime: t})} />
+                      </div>
                   </div>
-                  <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900"><h4 className="font-bold text-red-700 mb-3 text-sm flex items-center gap-2"><Flame className="w-4 h-4"/> خطرات</h4><div className="grid grid-cols-2 gap-2">{HAZARDS.map(h => (<label key={h} className="flex items-center gap-2 text-xs font-medium cursor-pointer"><input type="checkbox" checked={newPermit.hazards.includes(h)} onChange={() => { const list = newPermit.hazards.includes(h) ? newPermit.hazards.filter(i=>i!==h) : [...newPermit.hazards, h]; setNewPermit({...newPermit, hazards: list}); }} /> {h}</label>))}</div></div>
+
+                  <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900">
+                      <h4 className="font-bold text-red-700 dark:text-red-400 mb-3 text-sm flex items-center gap-2"><Flame className="w-4 h-4"/> خطرات شناسایی شده</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                          {HAZARDS.map(h => (
+                              <label key={h} className="flex items-center gap-2 text-xs font-medium cursor-pointer hover:bg-white/50 dark:hover:bg-white/10 p-2 rounded transition">
+                                  <input type="checkbox" className="accent-red-600 w-4 h-4" checked={newPermit.hazards.includes(h)} onChange={() => toggleItem(newPermit.hazards, h, (v) => setNewPermit({...newPermit, hazards: v}))} />
+                                  {h}
+                              </label>
+                          ))}
+                      </div>
+                  </div>
+
+                  <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-xl border border-green-100 dark:border-green-900">
+                      <h4 className="font-bold text-green-700 dark:text-green-400 mb-3 text-sm flex items-center gap-2"><CheckSquare className="w-4 h-4"/> اقدامات احتیاطی الزامی</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                          {PRECAUTIONS.map(p => (
+                              <label key={p} className="flex items-center gap-2 text-xs font-medium cursor-pointer hover:bg-white/50 dark:hover:bg-white/10 p-2 rounded transition">
+                                  <input type="checkbox" className="accent-green-600 w-4 h-4" checked={newPermit.precautions.includes(p)} onChange={() => toggleItem(newPermit.precautions, p, (v) => setNewPermit({...newPermit, precautions: v}))} />
+                                  {p}
+                              </label>
+                          ))}
+                      </div>
+                  </div>
+
                   <div className="pt-4 border-t dark:border-gray-700 flex justify-end gap-3">
-                      <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 border rounded-xl hover:bg-gray-100 transition">انصراف</button>
+                      <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 border rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition">انصراف</button>
                       <button type="submit" className="px-6 py-2.5 bg-primary text-white rounded-xl shadow hover:bg-red-800 transition">صدور مجوز</button>
                   </div>
               </form>

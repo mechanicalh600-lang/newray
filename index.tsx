@@ -1,4 +1,30 @@
 
+// #region agent log (only when VITE_ERROR_INGEST_URL is set)
+const ERROR_INGEST_URL = (import.meta.env.VITE_ERROR_INGEST_URL || '').trim();
+(() => {
+  if (!ERROR_INGEST_URL) return;
+  const origOnError = window.onerror;
+  window.onerror = function (msg, url, line, col, err) {
+    if (typeof msg === 'string' && msg.includes('Cannot convert object to primitive value')) {
+      try {
+        fetch(ERROR_INGEST_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location: 'global:window.onerror',
+            message: 'TypeError: Cannot convert object to primitive value',
+            data: { msg, url, line, col, stack: err?.stack },
+            timestamp: Date.now(),
+            hypothesisId: 'H1-global'
+          })
+        }).catch(() => {});
+      } catch (_) {}
+    }
+    return origOnError ? (origOnError as any)(msg, url, line, col, err) : false;
+  };
+})();
+// #endregion
+
 import React, { Component, ReactNode, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
@@ -22,6 +48,23 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   componentDidCatch(error: any, errorInfo: any) {
     console.error("Uncaught error in application:", error, errorInfo);
+    // #region agent log
+    if (ERROR_INGEST_URL && error?.message?.includes?.('Cannot convert object to primitive value')) {
+      try {
+        fetch(ERROR_INGEST_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location: 'ErrorBoundary.componentDidCatch',
+            message: 'TypeError: Cannot convert object to primitive value',
+            data: { error: String(error), stack: error?.stack, componentStack: errorInfo?.componentStack },
+            timestamp: Date.now(),
+            hypothesisId: 'H2-error-boundary'
+          })
+        }).catch(() => {});
+      } catch (_) {}
+    }
+    // #endregion
   }
 
   render() {

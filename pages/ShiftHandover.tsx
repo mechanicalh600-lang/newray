@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User } from '../types';
 import { 
   Clipboard, Save, X, ArrowRight, Trash2, 
-  UserCheck, CalendarOff, UserX, Loader2, Check, ArrowLeft,
+  UserCheck, CalendarOff, UserX, Loader2, Check, ArrowLeft, Search,
 } from 'lucide-react';
 import { getShamsiDate, parseShamsiDate } from '../utils';
 import { fetchMasterData, fetchShiftReports, saveShiftReport, fetchNextTrackingCode } from '../workflowStore';
@@ -49,6 +49,15 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
 
   const [personnel, setPersonnel] = useState<any[]>([]);
 
+  const formatDateTime = (raw?: string) => {
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    const time = dt.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const date = dt.toLocaleDateString('fa-IR');
+    return `${time} | ${date}`;
+  };
+
   // Filter States
   const [filterDate, setFilterDate] = useState('');
   const [filterShiftType, setFilterShiftType] = useState('ALL');
@@ -64,7 +73,8 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
   });
 
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceStatus>>({});
-  const [leaveTypes, setLeaveTypes] = useState<Record<string, LeaveType>>({}); 
+  const [leaveTypes, setLeaveTypes] = useState<Record<string, LeaveType>>({});
+  const [attendanceSearch, setAttendanceSearch] = useState<{ present: string; leave: string; absent: string }>({ present: '', leave: '', absent: '' }); 
 
   const [production, setProduction] = useState<{
       lineA: Record<string, number>,
@@ -72,8 +82,8 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
   }>({ lineA: {}, lineB: {} });
 
   const [feedInfo, setFeedInfo] = useState<{
-      lineA: Record<string, [FeedInput, FeedInput, FeedInput]>,
-      lineB: Record<string, [FeedInput, FeedInput, FeedInput]>
+      lineA: Record<string, FeedInput[]>,
+      lineB: Record<string, FeedInput[]>
   }>({ lineA: {}, lineB: {} });
 
   // UI State for Production Tab
@@ -183,11 +193,16 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
       setLoading(true);
       try {
           const data = await fetchShiftReports();
-          const formattedData = data.map((d: any) => ({
-              ...d,
-              total_production_a: Number(d.total_production_a),
-              total_production_b: Number(d.total_production_b)
-          }));
+          const formattedData = data.map((d: any) => {
+              const a = Number(d.total_production_a) || 0;
+              const b = Number(d.total_production_b) || 0;
+              return {
+                  ...d,
+                  total_production_a: a,
+                  total_production_b: b,
+                  total_feed_sum: a + b
+              };
+          });
           setReportsList(formattedData);
       } catch (e) {
           console.error("Error loading reports", e);
@@ -197,10 +212,21 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
   };
 
   const isReadOnly = (viewMode === 'VIEW' && reportData) || (viewMode === 'FORM' && isFormViewOnly);
-  const productionTimes = useMemo(() => getProductionTimes(shiftInfo.type), [shiftInfo.type]);
 
   const checkTabValidity = (tabId: number): boolean => {
       if (isReadOnly) return true;
+      if (tabId === 2) {
+          const times = getProductionTimes(shiftInfo.type);
+          for (const line of ['lineA', 'lineB'] as const) {
+              if (!feedLinesActive[line]) continue;
+              const lineFeed = feedInfo[line] || {};
+              for (const time of times) {
+                  const arr = lineFeed[time];
+                  const sum = (arr && Array.isArray(arr) ? arr : []).reduce((a, f) => a + Number(f?.percent || 0), 0);
+                  if (sum !== 100) return false;
+              }
+          }
+      }
       if (tabId === 9) {
           const shiftMins = parseTimeToMinutes(shiftInfo.shiftDuration);
           const totalA = parseTimeToMinutes(downtime.lineA.workTime) + parseTimeToMinutes(downtime.lineA.stopTime);
@@ -248,20 +274,22 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
   const firstValidationIssue = validationIssues[0];
 
   // Helper functions for state updates (passed to tabs)
-  const handleTonnageChange = (line: 'lineA' | 'lineB', time: string, timeIdx: number, val: string) => {
+  const productionTimes = getProductionTimes(shiftInfo.type);
+  const handleTonnageChange = (line: 'lineA' | 'lineB', time: string, val: string) => {
       if (isReadOnly) return;
-      const numVal = Math.max(0, Number(val) || 0);
-      const timesToUpdate = productionTimes.slice(timeIdx);
+      const numVal = Number(val);
+      if (numVal < 0) return;
+      const timeIdx = productionTimes.indexOf(time);
+      if (timeIdx < 0) {
+          setProduction(prev => ({ ...prev, [line]: { ...prev[line], [time]: numVal } }));
+          return;
+      }
       setProduction(prev => {
           const newLine = { ...prev[line] };
-          timesToUpdate.forEach(t => { newLine[t] = numVal; });
-          return { ...prev, [line]: newLine };
-      });
-      setFeedInfo(prev => {
-          const current = prev[line]?.[time];
-          if (!current) return prev;
-          const newLine = { ...prev[line] };
-          timesToUpdate.forEach(t => { newLine[t] = [...(current || [])]; });
+          for (let i = timeIdx; i < productionTimes.length; i++) {
+              const t = productionTimes[i];
+              if (t) newLine[t] = numVal;
+          }
           return { ...prev, [line]: newLine };
       });
   };
@@ -431,10 +459,10 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
         "کد گزارش": item.tracking_code,
         "تاریخ": item.shift_date,
         "شیفت": item.shift_name,
-        "نوع شیفت": SHIFT_TYPE_MAP[item.shift_type] || item.shift_type,
-        "سرپرست": item.supervisor_name,
-        "خوراک A": item.total_production_a,
-        "خوراک B": item.total_production_b
+        "نوبت کاری": SHIFT_TYPE_MAP[item.shift_type] || item.shift_type,
+        "سرپرست شیفت": item.supervisor_name,
+        "خوراک خط A": item.total_production_a,
+        "خوراک خط B": item.total_production_b
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -473,22 +501,24 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
   const handleDynamicListChange = (s:any, i:any, v:any) => { if(s==='downtime') setDowntime((p:any)=>{const l=[...p.generalDescription];l[i]=v;return {...p, generalDescription:l}}); else setFooter((p:any)=>{const l=[...p.nextShiftActions];l[i]=v;return {...p, nextShiftActions:l}}); };
   const addDynamicRecord = (s:any) => { if(s==='downtime') setDowntime((p:any)=>({...p, generalDescription:[...p.generalDescription, '']})); else setFooter((p:any)=>({...p, nextShiftActions:[...p.nextShiftActions, '']})); };
   const removeDynamicRecord = (s:any, i:any) => { if(s==='downtime') setDowntime((p:any)=>({...p, generalDescription:p.generalDescription.filter((_:any,x:any)=>x!==i)})); else setFooter((p:any)=>({...p, nextShiftActions:p.nextShiftActions.filter((_:any,x:any)=>x!==i)})); };
-  const cascadeFeedToLater = (newLine: Record<string, any[]>, line: 'lineA' | 'lineB', fromTimeIdx: number, updatedFeed: any[]) => {
-      productionTimes.slice(fromTimeIdx).forEach(t => { newLine[t] = updatedFeed.map(f => ({ ...f })); });
+  const ensureFeedSlots = (arr: FeedInput[] | undefined, minLen: number): FeedInput[] => {
+      const out = [...(arr || [{ type: '', percent: 0 }])];
+      while (out.length <= minLen) out.push({ type: '', percent: 0 });
+      return out;
   };
-
   const handleFeedTypeChange = (line: 'lineA' | 'lineB', timeIdx: number, feedIdx: number, value: string) => {
       if (isReadOnly) return;
       const time = productionTimes[timeIdx];
       if (!time) return;
       setFeedInfo(prev => {
           const newLine = { ...prev[line] };
-          const current = newLine[time] || [{ type: '', percent: 0 }];
-          const arr = [...current];
-          while (arr.length <= feedIdx) arr.push({ type: '', percent: 0 });
-          arr[feedIdx] = { ...arr[feedIdx], type: value, isCustom: false };
-          newLine[time] = arr;
-          cascadeFeedToLater(newLine, line, timeIdx, arr);
+          const current = ensureFeedSlots(newLine[time], feedIdx);
+          const updated = current.map((f, i) => i === feedIdx ? { ...f, type: value, isCustom: false } : { ...f });
+          const copy = () => updated.map(f => ({ ...f }));
+          for (let i = timeIdx; i < productionTimes.length; i++) {
+              const t = productionTimes[i];
+              if (t) newLine[t] = copy();
+          }
           return { ...prev, [line]: newLine };
       });
   };
@@ -498,12 +528,13 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
       if (!time) return;
       setFeedInfo(prev => {
           const newLine = { ...prev[line] };
-          const current = newLine[time] || [{ type: '', percent: 0 }];
-          const arr = [...current];
-          while (arr.length <= feedIdx) arr.push({ type: '', percent: 0 });
-          arr[feedIdx] = { ...arr[feedIdx], type: value, isCustom: true };
-          newLine[time] = arr;
-          cascadeFeedToLater(newLine, line, timeIdx, arr);
+          const current = ensureFeedSlots(newLine[time], feedIdx);
+          const updated = current.map((f, i) => i === feedIdx ? { ...f, type: value, isCustom: true } : { ...f });
+          const copy = () => updated.map(f => ({ ...f }));
+          for (let i = timeIdx; i < productionTimes.length; i++) {
+              const t = productionTimes[i];
+              if (t) newLine[t] = copy();
+          }
           return { ...prev, [line]: newLine };
       });
   };
@@ -513,11 +544,13 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
       if (!time) return;
       setFeedInfo(prev => {
           const newLine = { ...prev[line] };
-          const current = newLine[time] || [{ type: '', percent: 0 }];
-          const arr = [...current];
-          if (feedIdx < arr.length) arr[feedIdx] = { type: '', percent: 0, isCustom: false };
-          newLine[time] = arr;
-          cascadeFeedToLater(newLine, line, timeIdx, arr);
+          const current = ensureFeedSlots(newLine[time], feedIdx);
+          const updated = current.map((f, i) => i === feedIdx ? { type: '', percent: 0, isCustom: false } : { ...f });
+          const copy = () => updated.map(f => ({ ...f }));
+          for (let i = timeIdx; i < productionTimes.length; i++) {
+              const t = productionTimes[i];
+              if (t) newLine[t] = copy();
+          }
           return { ...prev, [line]: newLine };
       });
   };
@@ -527,16 +560,17 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
       if (!time) return;
       setFeedInfo(prev => {
           const newLine = { ...prev[line] };
-          const current = newLine[time] || [{ type: '', percent: 0 }];
-          const arr = [...current];
-          while (arr.length <= feedIdx) arr.push({ type: '', percent: 0 });
-          const sumOthers = arr.reduce((s: number, f: any, i: number) => i === feedIdx ? s : s + Number(f?.percent || 0), 0);
-          const maxAllowed = Math.max(1, 100 - sumOthers);
-          const raw = Number(value) || 0;
-          const numVal = Math.max(1, Math.min(100, Math.min(maxAllowed, raw)));
-          arr[feedIdx] = { ...arr[feedIdx], percent: numVal };
-          newLine[time] = arr;
-          cascadeFeedToLater(newLine, line, timeIdx, arr);
+          const current = ensureFeedSlots(newLine[time], feedIdx);
+          let sumPrev = 0;
+          for (let i = 0; i < feedIdx; i++) sumPrev += Number(current[i]?.percent || 0);
+          const maxPercent = Math.max(0, 100 - sumPrev);
+          const numVal = Math.max(0, Math.min(maxPercent, Number(value) || 0));
+          const updated = current.map((f, i) => i === feedIdx ? { ...f, percent: numVal } : { ...f });
+          const copy = () => updated.map(f => ({ ...f }));
+          for (let i = timeIdx; i < productionTimes.length; i++) {
+              const t = productionTimes[i];
+              if (t) newLine[t] = copy();
+          }
           return { ...prev, [line]: newLine };
       });
   };
@@ -614,7 +648,7 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
 
   if (viewMode === 'FORM') {
     return (
-    <div className="max-w-7xl mx-auto pb-24">
+    <div className="w-full max-w-full pb-24">
       <div className="flex justify-between items-center mb-6 sticky top-0 bg-gray-50 dark:bg-gray-900 z-20 py-2">
         <div className="flex items-center gap-2">
             <Clipboard className="w-8 h-8 text-primary" />
@@ -695,18 +729,30 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
                                 </div>
                                 <div className="bg-green-50/50 dark:bg-green-900/10 p-3 rounded-b-xl border border-green-200 dark:border-green-800 min-h-[200px]">
                                     {!isReadOnly && (
-                                        <select 
-                                            className="w-full p-2 mb-3 text-sm border rounded bg-white dark:bg-gray-800 outline-none focus:ring-1 focus:ring-green-500"
-                                            onChange={(e) => {
-                                                if(e.target.value) handleAttendanceChange(e.target.value, 'PRESENT');
-                                                e.target.value = '';
-                                            }}
-                                        >
-                                            <option value="">+ افزودن نفر</option>
-                                            {personnel.filter(p => !attendanceMap[p.id]).map(p => (
-                                                <option key={p.id} value={p.id}>{p.full_name}</option>
-                                            ))}
-                                        </select>
+                                        <div className="relative mb-3">
+                                            <div className="relative">
+                                                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                                <input
+                                                    type="text"
+                                                    placeholder=""
+                                                    className="w-full pr-8 pl-2 py-2 text-sm border rounded bg-white dark:bg-gray-800 outline-none focus:ring-1 focus:ring-green-500"
+                                                    value={attendanceSearch.present}
+                                                    onChange={e => setAttendanceSearch(s => ({ ...s, present: e.target.value }))}
+                                                />
+                                            </div>
+                                            {attendanceSearch.present && (
+                                                <div className="absolute top-full left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white dark:bg-gray-800 border rounded shadow-lg z-10">
+                                                    {personnel.filter(p => !attendanceMap[p.id] && String(p.full_name || '').toLowerCase().includes(attendanceSearch.present.toLowerCase())).slice(0, 10).map(p => (
+                                                        <button key={p.id} type="button" className="w-full text-right px-3 py-2 text-sm hover:bg-green-50 dark:hover:bg-green-900/20" onClick={() => { handleAttendanceChange(p.id, 'PRESENT'); setAttendanceSearch(s => ({ ...s, present: '' })); }}>
+                                                            {p.full_name}
+                                                        </button>
+                                                    ))}
+                                                    {personnel.filter(p => !attendanceMap[p.id] && String(p.full_name || '').toLowerCase().includes(attendanceSearch.present.toLowerCase())).length === 0 && (
+                                                        <div className="px-3 py-2 text-sm text-gray-400">موردی یافت نشد</div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
                                     <div className="space-y-2">
                                         {personnel.filter(p => attendanceMap[p.id] === 'PRESENT').map(p => (
@@ -726,18 +772,30 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
                                 </div>
                                 <div className="bg-orange-50/50 dark:bg-orange-900/10 p-3 rounded-b-xl border border-orange-200 dark:border-orange-800 min-h-[200px]">
                                     {!isReadOnly && (
-                                        <select 
-                                            className="w-full p-2 mb-3 text-sm border rounded bg-white dark:bg-gray-800 outline-none focus:ring-1 focus:ring-orange-500"
-                                            onChange={(e) => {
-                                                if(e.target.value) handleAttendanceChange(e.target.value, 'LEAVE');
-                                                e.target.value = '';
-                                            }}
-                                        >
-                                            <option value="">+ افزودن نفر</option>
-                                            {personnel.filter(p => !attendanceMap[p.id]).map(p => (
-                                                <option key={p.id} value={p.id}>{p.full_name}</option>
-                                            ))}
-                                        </select>
+                                        <div className="relative mb-3">
+                                            <div className="relative">
+                                                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                                <input
+                                                    type="text"
+                                                    placeholder=""
+                                                    className="w-full pr-8 pl-2 py-2 text-sm border rounded bg-white dark:bg-gray-800 outline-none focus:ring-1 focus:ring-orange-500"
+                                                    value={attendanceSearch.leave}
+                                                    onChange={e => setAttendanceSearch(s => ({ ...s, leave: e.target.value }))}
+                                                />
+                                            </div>
+                                            {attendanceSearch.leave && (
+                                                <div className="absolute top-full left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white dark:bg-gray-800 border rounded shadow-lg z-10">
+                                                    {personnel.filter(p => !attendanceMap[p.id] && String(p.full_name || '').toLowerCase().includes(attendanceSearch.leave.toLowerCase())).slice(0, 10).map(p => (
+                                                        <button key={p.id} type="button" className="w-full text-right px-3 py-2 text-sm hover:bg-orange-50 dark:hover:bg-orange-900/20" onClick={() => { handleAttendanceChange(p.id, 'LEAVE'); setAttendanceSearch(s => ({ ...s, leave: '' })); }}>
+                                                            {p.full_name}
+                                                        </button>
+                                                    ))}
+                                                    {personnel.filter(p => !attendanceMap[p.id] && String(p.full_name || '').toLowerCase().includes(attendanceSearch.leave.toLowerCase())).length === 0 && (
+                                                        <div className="px-3 py-2 text-sm text-gray-400">موردی یافت نشد</div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
                                     <div className="space-y-2">
                                         {personnel.filter(p => attendanceMap[p.id] === 'LEAVE').map(p => (
@@ -767,18 +825,30 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
                                 </div>
                                 <div className="bg-red-50/50 dark:bg-red-900/10 p-3 rounded-b-xl border border-red-200 dark:border-red-800 min-h-[200px]">
                                     {!isReadOnly && (
-                                        <select 
-                                            className="w-full p-2 mb-3 text-sm border rounded bg-white dark:bg-gray-800 outline-none focus:ring-1 focus:ring-red-500"
-                                            onChange={(e) => {
-                                                if(e.target.value) handleAttendanceChange(e.target.value, 'ABSENT');
-                                                e.target.value = '';
-                                            }}
-                                        >
-                                            <option value="">+ افزودن نفر</option>
-                                            {personnel.filter(p => !attendanceMap[p.id]).map(p => (
-                                                <option key={p.id} value={p.id}>{p.full_name}</option>
-                                            ))}
-                                        </select>
+                                        <div className="relative mb-3">
+                                            <div className="relative">
+                                                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                                <input
+                                                    type="text"
+                                                    placeholder=""
+                                                    className="w-full pr-8 pl-2 py-2 text-sm border rounded bg-white dark:bg-gray-800 outline-none focus:ring-1 focus:ring-red-500"
+                                                    value={attendanceSearch.absent}
+                                                    onChange={e => setAttendanceSearch(s => ({ ...s, absent: e.target.value }))}
+                                                />
+                                            </div>
+                                            {attendanceSearch.absent && (
+                                                <div className="absolute top-full left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white dark:bg-gray-800 border rounded shadow-lg z-10">
+                                                    {personnel.filter(p => !attendanceMap[p.id] && String(p.full_name || '').toLowerCase().includes(attendanceSearch.absent.toLowerCase())).slice(0, 10).map(p => (
+                                                        <button key={p.id} type="button" className="w-full text-right px-3 py-2 text-sm hover:bg-red-50 dark:hover:bg-red-900/20" onClick={() => { handleAttendanceChange(p.id, 'ABSENT'); setAttendanceSearch(s => ({ ...s, absent: '' })); }}>
+                                                            {p.full_name}
+                                                        </button>
+                                                    ))}
+                                                    {personnel.filter(p => !attendanceMap[p.id] && String(p.full_name || '').toLowerCase().includes(attendanceSearch.absent.toLowerCase())).length === 0 && (
+                                                        <div className="px-3 py-2 text-sm text-gray-400">موردی یافت نشد</div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
                                     <div className="space-y-2">
                                         {personnel.filter(p => attendanceMap[p.id] === 'ABSENT').map(p => (
@@ -816,7 +886,6 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
           {activeTab === 2 && (
               <TabProduction 
                   production={production} feedInfo={feedInfo} isReadOnly={isReadOnly}
-                  productionTimes={productionTimes}
                   handleTonnageChange={handleTonnageChange} 
                   handleFeedTypeChange={handleFeedTypeChange}
                   handleCustomFeedType={handleCustomFeedType}
@@ -824,6 +893,7 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
                   handleFeedPercentChange={handleFeedPercentChange}
                   feedLinesActive={feedLinesActive} 
                   setFeedLinesActive={setFeedLinesActive}
+                  shiftType={shiftInfo.type}
               />
           )}
           {activeTab === 3 && <TabMills ballMills={ballMills} setBallMills={setBallMills} isReadOnly={isReadOnly} handleAddBallCharge={handleAddBallCharge} handleRemoveBallCharge={handleRemoveBallCharge} />}
@@ -914,12 +984,14 @@ export const ShiftHandover: React.FC<Props> = ({ user }) => {
         isLoading={loading}
         columns={[
           { header: 'کد گزارش', accessor: (i: any) => <span className="font-mono font-bold">{i.tracking_code}</span>, sortKey: 'tracking_code' },
-          { header: 'تاریخ', accessor: (i: any) => i.shift_date, sortKey: 'shift_date' },
+          { header: 'تاریخ شیفت', accessor: (i: any) => i.shift_date, sortKey: 'shift_date' },
+          { header: 'تاریخ ثبت', accessor: (i: any) => formatDateTime(i.created_at), sortKey: 'created_at' },
           { header: 'شیفت', accessor: (i: any) => i.shift_name, sortKey: 'shift_name' },
-          { header: 'نوع شیفت', accessor: (i: any) => SHIFT_TYPE_MAP[i.shift_type] || i.shift_type, sortKey: 'shift_type' },
-          { header: 'سرپرست', accessor: (i: any) => i.supervisor_name || '---', sortKey: 'supervisor_name' },
-          { header: 'خوراک مصرفی A', accessor: (i: any) => <span className="text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">{i.total_production_a}</span>, sortKey: 'total_production_a' },
-          { header: 'خوراک مصرفی B', accessor: (i: any) => <span className="text-red-600 font-bold bg-red-50 px-2 py-1 rounded">{i.total_production_b}</span>, sortKey: 'total_production_b' },
+          { header: 'نوبت کاری', accessor: (i: any) => SHIFT_TYPE_MAP[i.shift_type] || i.shift_type, sortKey: 'shift_type' },
+          { header: 'سرپرست شیفت', accessor: (i: any) => i.supervisor_name || '---', sortKey: 'supervisor_name' },
+          { header: 'خوراک خط A', accessor: (i: any) => <span className="text-blue-600 font-bold">{i.total_production_a}</span>, sortKey: 'total_production_a' },
+          { header: 'خوراک خط B', accessor: (i: any) => <span className="text-red-600 font-bold">{i.total_production_b}</span>, sortKey: 'total_production_b' },
+          { header: 'مجموع خوراک مصرفی', accessor: (i: any) => <span className="font-bold">{(i.total_feed_sum ?? (Number(i.total_production_a) || 0) + (Number(i.total_production_b) || 0))}</span>, sortKey: 'total_feed_sum' },
         ]}
         selectedIds={selectedIds}
         onSelect={setSelectedIds}

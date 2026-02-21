@@ -7,8 +7,11 @@ import {
   ImageIcon, Grid, ChevronLeft, AlignCenter, 
   AlignLeft, AlignRight, X, FileText, Monitor, Factory,
   Palette, Upload, Bold, Italic, Underline, LineChart as LineChartIcon, Sigma,
-  ChevronUp, ChevronDown, Undo2, Redo2, Copy, Lock, Unlock, Download, Layers, Ruler, Magnet
+  ChevronUp, ChevronDown, Undo2, Redo2, Copy, Lock, Unlock, Download, Layers, Ruler, Magnet, ArrowRight,
+  UploadCloud
 } from 'lucide-react';
+import { DataPage } from '../components/DataPage';
+import { ConfirmModal } from '../components/ConfirmModal';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, Legend, AreaChart, Area, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
@@ -186,22 +189,58 @@ const TABLE_COLUMNS: Record<DataSource, string[]> = {
     parts: ['id', 'code', 'name', 'current_stock', 'min_stock', 'unit_price'],
     personnel: ['id', 'full_name', 'unit', 'personnel_code'],
 };
+
+/** فیلدهای رکورد گزارش (داده‌های ثبت‌شده در فرم) برای اتصال در قالب چاپ */
+const RECORD_FIELDS: { key: string; label: string }[] = [
+  { key: 'tracking_code', label: 'کد رهگیری' },
+  { key: 'report_date', label: 'تاریخ گزارش' },
+  { key: 'shift_name', label: 'نام شیفت' },
+  { key: 'shift_type', label: 'نوبت کاری' },
+  { key: 'shift_duration', label: 'مدت شیفت' },
+  { key: 'weekday', label: 'روز هفته' },
+  { key: 'supervisor_name', label: 'ثبت‌کننده گزارش' },
+  { key: 'total_production_a', label: 'مجموع تناژ خط A (تن)' },
+  { key: 'total_production_b', label: 'مجموع تناژ خط B (تن)' },
+  { key: 'feed_summary', label: 'خلاصه خوراک' },
+  { key: 'ball_mills_summary', label: 'خلاصه بالمیل' },
+  { key: 'hydrocyclone_summary', label: 'خلاصه هیدروسیکلون' },
+  { key: 'concentrate_filter_summary', label: 'خلاصه فیلتر کنسانتره' },
+  { key: 'thickener_summary', label: 'خلاصه تیکنر' },
+  { key: 'recovery_filter_summary', label: 'خلاصه فیلتر بازیافت' },
+  { key: 'pumps_summary', label: 'توضیحات پمپ‌ها' },
+  { key: 'general_notes', label: 'توضیحات عمومی' },
+];
 const reportsGroup = MENU_ITEMS.find(item => item.id === 'reports-group');
 const BASE_REPORT_MODULES = reportsGroup?.submenu ? reportsGroup.submenu.map(item => ({
     id: item.id,
     label: item.title,
+    path: item.path || '#',
 })) : [];
+
+// ۱۱ منوی اضافی برای طراحی قالب (مرتبط با صفحات مربوطه)
+const ADDITIONAL_MODULES = [
+  { id: 'permits', label: 'مجوز کار (PTW)', path: '/permits' },
+  { id: 'projects', label: 'کنترل پروژه', path: '/projects' },
+  { id: 'documents', label: 'اسناد فنی', path: '/documents' },
+  { id: 'suggestions', label: 'پیشنهادات فنی', path: '/suggestions' },
+  { id: 'meetings', label: 'صورتجلسات', path: '/meetings' },
+  { id: 'inventory', label: 'موجودی انبار', path: '/inventory' },
+  { id: 'partrequest', label: 'درخواست کالا', path: '/part-requests' },
+  { id: 'purchases', label: 'درخواست خرید', path: '/purchases' },
+  { id: 'training-courses', label: 'دوره‌های آموزشی', path: '/training-courses' },
+  { id: 'training', label: 'ماتریس مهارت و آموزش', path: '/training' },
+  { id: 'performance', label: 'امتیاز عملکرد', path: '/performance' },
+];
 const BAND_OPTIONS: BandType[] = ['reportHeader', 'pageHeader', 'groupHeader', 'detail', 'groupFooter', 'reportFooter', 'pageFooter'];
 const GOVERNANCE_ROLE_OPTIONS = ['factory_manager', 'production_manager', 'maintenance_manager', 'supervisor', 'admin'];
 
 
 // --- Main Component ---
 export const ReportTemplateDesign: React.FC = () => {
-  const [mainTab, setMainTab] = useState<'DESIGN' | 'MANAGE'>('DESIGN');
+  const [viewMode, setViewMode] = useState<'LIST' | 'DESIGN'>('LIST');
   const [allTemplates, setAllTemplates] = useState<any[]>([]);
-  const [collapsedModules, setCollapsedModules] = useState<Record<string, boolean>>({});
+  const [activateConfirmTarget, setActivateConfirmTarget] = useState<{ id: string; targetModule: string; title?: string } | null>(null);
   const [dynamicModules, setDynamicModules] = useState<{ id: string; label: string }[]>([]);
-  const [expandedTemplateDetails, setExpandedTemplateDetails] = useState<Record<string, boolean>>({});
   const [template, setTemplate] = useState<ReportTemplate>({
     id: 'new',
     title: 'قالب گزارش تولید روزانه',
@@ -235,6 +274,7 @@ export const ReportTemplateDesign: React.FC = () => {
     governance: { requiredRoles: [], requiresApproval: false, approvedAt: null, approvedBy: null }
   });
   const [selectedElementId, setSelectedElementId] = useState<string | null>('el-1');
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [orgLogo, setOrgLogo] = useState<string | null>(null);
   const [interaction, setInteraction] = useState<{ type: InteractionType, elementId: string, startX: number, startY: number, startLayout: ElementLayout } | null>(null);
   const [historyPast, setHistoryPast] = useState<ReportTemplate[]>([]);
@@ -256,6 +296,7 @@ export const ReportTemplateDesign: React.FC = () => {
     page: true,
     governance: true,
   });
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [collapsedPropertyGroups, setCollapsedPropertyGroups] = useState<Record<string, boolean>>({
     layout: true,
     appearance: true,
@@ -276,6 +317,8 @@ export const ReportTemplateDesign: React.FC = () => {
   const skipHistoryRef = useRef(false);
 
   const selectedElement = template.elements.find(el => el.id === selectedElementId);
+  const selectedElements = template.elements.filter(el => selectedElementIds.includes(el.id));
+  const hasMultiSelection = selectedElementIds.length >= 2;
   const page = template.pageSettings || { size: 'A4', orientation: 'portrait', marginTop: 12, marginRight: 12, marginBottom: 12, marginLeft: 12, keepTogether: true };
   const pageSize = page.size === 'A3' ? { w: 297, h: 420 } : page.size === 'Letter' ? { w: 216, h: 279 } : { w: 210, h: 297 };
   const canvasWidthMm = page.orientation === 'landscape' ? pageSize.h : pageSize.w;
@@ -299,9 +342,11 @@ export const ReportTemplateDesign: React.FC = () => {
   const refreshTemplates = () => setAllTemplates(getAllReportTemplates());
 
   const moduleOptions = useMemo(() => {
+    const cleanLabel = (l: string) => (l || '').replace(/\s*-\s*فرم گزارش\s*$/, '').trim() || l;
     const map = new Map<string, string>();
-    BASE_REPORT_MODULES.forEach(m => map.set(m.id, m.label));
-    dynamicModules.forEach(m => map.set(m.id, m.label));
+    BASE_REPORT_MODULES.forEach(m => map.set(m.id, cleanLabel(m.label)));
+    ADDITIONAL_MODULES.forEach(m => map.set(m.id, m.label));
+    dynamicModules.forEach(m => map.set(m.id, cleanLabel(m.label)));
     return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
   }, [dynamicModules]);
 
@@ -329,12 +374,14 @@ export const ReportTemplateDesign: React.FC = () => {
     if (!raw) return '-';
     const dt = new Date(raw);
     if (Number.isNaN(dt.getTime())) return raw;
-    return dt.toLocaleString('fa-IR');
+    const time = dt.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const date = dt.toLocaleDateString('fa-IR');
+    return `${time} | ${date}`;
   };
 
   const createDefaultTemplateForModule = (moduleId: string): ReportTemplate => ({
     id: 'new',
-    title: `قالب ${getModuleLabel(moduleId)}`,
+    title: getModuleLabel(moduleId),
     targetModule: moduleId,
     elements: [{
       id: 'el-1', type: 'HEADER',
@@ -366,13 +413,19 @@ export const ReportTemplateDesign: React.FC = () => {
   });
 
   const loadTemplateForModule = (moduleId: string) => {
+    // در حالت «قالب جدید» (id خالی یا 'new') همیشه قالب پیش‌فرض تازه بساز، رکورد ذخیره‌شده را بار نکن
+    if (template.id === 'new' || template.id === '') {
+      const fallback = createDefaultTemplateForModule(moduleId);
+      setTemplate(fallback);
+      setSelectedElementId(fallback.elements?.[0]?.id || null);
+      return;
+    }
     const activeTemplate = getActiveReportTemplateByModule(moduleId);
     if (activeTemplate) {
       setTemplate(activeTemplate as any);
       setSelectedElementId(activeTemplate.elements?.[0]?.id || null);
       return;
     }
-
     const fallback = createDefaultTemplateForModule(moduleId);
     setTemplate(fallback);
     setSelectedElementId(fallback.elements?.[0]?.id || null);
@@ -380,8 +433,12 @@ export const ReportTemplateDesign: React.FC = () => {
 
   useEffect(() => {
     const fetchOrgLogo = async () => {
-      const { data } = await supabase.from('app_settings').select('org_logo').single();
-      if (data?.org_logo) setOrgLogo(data.org_logo);
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('org_logo')
+        .order('created_at', { ascending: true })
+        .limit(1);
+      if (!error && data?.length) setOrgLogo(data[0].org_logo || null);
     };
     fetchOrgLogo();
   }, []);
@@ -390,10 +447,11 @@ export const ReportTemplateDesign: React.FC = () => {
     const loadDynamicModules = async () => {
       const defs = await getAllReportDefinitions();
       setDynamicModules(
-        defs.map(d => ({
-          id: d.slug,
-          label: d.title,
-        }))
+        defs.map(d => {
+          const modulePath = (d.template_schema as any)?.modulePath;
+          const id = modulePath ? String(modulePath).replace(/^\/+/, '') : d.slug;
+          return { id, label: d.title };
+        })
       );
     };
     const onChanged = () => loadDynamicModules();
@@ -405,7 +463,6 @@ export const ReportTemplateDesign: React.FC = () => {
   useEffect(() => {
     ensureDefaultShiftReportTemplate();
     refreshTemplates();
-    loadTemplateForModule('productionreport');
   }, []);
 
   // Keyboard Delete Handler
@@ -425,6 +482,13 @@ export const ReportTemplateDesign: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [selectedElementId, template.elements]);
+
+  // با زدن فلش بازگشت در هدر Layout به لیست رکوردها برگرد
+  useEffect(() => {
+    const handler = () => setViewMode('LIST');
+    window.addEventListener('report-template-design-back-to-list', handler);
+    return () => window.removeEventListener('report-template-design-back-to-list', handler);
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -521,14 +585,16 @@ export const ReportTemplateDesign: React.FC = () => {
     }
     setTemplate(prev => ({ ...prev, elements: [...prev.elements, { id: newId, type, layout, props: defaultProps as ReportElement['props'] }] }));
     setSelectedElementId(newId);
+    setSelectedElementIds([newId]);
   };
-  
+
   const removeElement = (id: string) => {
     setTemplate(prev => ({
       ...prev,
       elements: prev.elements.filter(el => el.id !== id)
     }));
     setSelectedElementId(null);
+    setSelectedElementIds(prev => prev.filter(x => x !== id));
   };
   
   const updateElement = (id: string, updates: any, target: 'props' | 'layout' = 'props') => {
@@ -633,6 +699,7 @@ export const ReportTemplateDesign: React.FC = () => {
     };
     setTemplate(prev => ({ ...prev, elements: [...prev.elements, duplicated] }));
     setSelectedElementId(duplicated.id);
+    setSelectedElementIds([duplicated.id]);
   };
 
   const handleToggleLockSelected = () => {
@@ -654,6 +721,68 @@ export const ReportTemplateDesign: React.FC = () => {
     if (mode === 'center-y') y = Math.max(0, Math.round((pageHeight - l.height) / 2));
     if (mode === 'bottom') y = Math.max(0, pageHeight - l.height);
     updateElement(selectedElement.id, { x, y }, 'layout');
+  };
+
+  const sameWidthSelected = () => {
+    if (selectedElements.length < 2) return;
+    const w = selectedElements[0].layout.width;
+    setTemplate(prev => ({
+      ...prev,
+      elements: prev.elements.map(el => selectedElementIds.includes(el.id) ? { ...el, layout: { ...el.layout, width: w } } : el),
+    }));
+  };
+
+  const sameHeightSelected = () => {
+    if (selectedElements.length < 2) return;
+    const h = selectedElements[0].layout.height;
+    setTemplate(prev => ({
+      ...prev,
+      elements: prev.elements.map(el => selectedElementIds.includes(el.id) ? { ...el, layout: { ...el.layout, height: h } } : el),
+    }));
+  };
+
+  const distributeHorizontallySelected = () => {
+    if (selectedElements.length < 2) return;
+    const sorted = [...selectedElements].sort((a, b) => a.layout.x - b.layout.x);
+    const totalW = sorted.reduce((s, el) => s + el.layout.width, 0);
+    const left = sorted[0].layout.x;
+    const right = sorted[sorted.length - 1].layout.x + sorted[sorted.length - 1].layout.width;
+    const gap = (right - left - totalW) / (sorted.length - 1);
+    let x = left;
+    const updates = sorted.map(el => {
+      const nextX = x;
+      x += el.layout.width + gap;
+      return { id: el.id, x: Math.round(nextX) };
+    });
+    setTemplate(prev => ({
+      ...prev,
+      elements: prev.elements.map(el => {
+        const u = updates.find(u => u.id === el.id);
+        return u ? { ...el, layout: { ...el.layout, x: u.x } } : el;
+      }),
+    }));
+  };
+
+  const distributeVerticallySelected = () => {
+    if (selectedElements.length < 2) return;
+    const sorted = [...selectedElements].sort((a, b) => a.layout.y - b.layout.y);
+    const totalH = sorted.reduce((s, el) => s + el.layout.height, 0);
+    const top = sorted[0].layout.y;
+    const bottom = sorted[sorted.length - 1].layout.y + sorted[sorted.length - 1].layout.height;
+    const gap = (bottom - top - totalH) / (sorted.length - 1);
+    let y = top;
+    const updates = sorted.map(el => {
+      const nextY = y;
+      y += el.layout.height + gap;
+      return { id: el.id, y: Math.round(nextY) };
+    });
+    setTemplate(prev => ({
+      ...prev,
+      elements: prev.elements.map(el => {
+        const u = updates.find(u => u.id === el.id);
+        return u ? { ...el, layout: { ...el.layout, y: u.y } } : el;
+      }),
+    }));
   };
 
   const exportTemplateAsJson = () => {
@@ -715,15 +844,40 @@ export const ReportTemplateDesign: React.FC = () => {
     }
   };
 
-  const groupedTemplates = useMemo(() => {
-    return moduleOptions.map(m => ({
-      moduleId: m.id,
-      moduleLabel: m.label,
-      items: allTemplates
-        .filter(t => t.targetModule === m.id)
-        .sort((a, b) => (b.version || 0) - (a.version || 0))
-    }));
-  }, [allTemplates, moduleOptions]);
+  const listColumns = useMemo(
+    () => [
+      { header: 'ماژول', accessor: (t: any) => getModuleLabel(t.targetModule || ''), sortKey: 'targetModule' },
+      { header: 'عنوان', accessor: (t: any) => t.title, sortKey: 'title' },
+      { header: 'نسخه', accessor: (t: any) => t.version, sortKey: 'version' },
+      {
+        header: 'وضعیت',
+        accessor: (t: any) =>
+          t.isActive ? <span className="text-green-700 bg-green-50 px-2 py-1 rounded">فعال</span> : <span className="text-gray-500">غیرفعال</span>,
+        sortKey: 'isActive',
+      },
+      { header: 'تاریخ', accessor: (t: any) => formatDateTime(t.updatedAt || t.createdAt), sortKey: 'updatedAt' },
+    ],
+    [moduleOptions]
+  );
+
+  const handleListAdd = () => {
+    const moduleId = moduleOptions[0]?.id || 'productionreport';
+    const fallback = createDefaultTemplateForModule(moduleId);
+    setTemplate(fallback);
+    setSelectedElementId(fallback.elements?.[0]?.id || null);
+    setViewMode('DESIGN');
+  };
+
+  const handleListEdit = (item: any) => {
+    setTemplate(item);
+    setSelectedElementId(item.elements?.[0]?.id || null);
+    setViewMode('DESIGN');
+  };
+
+  const handleBackToList = () => {
+    refreshTemplates();
+    setViewMode('LIST');
+  };
   
   const handleReorderDetail = (index: number, direction: 'UP' | 'DOWN') => {
     if (!selectedElement || !selectedElement.props.detailsProps) return;
@@ -1457,12 +1611,23 @@ export const ReportTemplateDesign: React.FC = () => {
                             </div>
                         </>}
                         {el.type === 'STAT_CARD' && <>
-                            <select className="w-full p-1 text-xs border rounded" value={el.props.valueField || ''} onChange={e => updateElement(el.id, { valueField: e.target.value })}><option value="">فیلد مقدار...</option>{TABLE_COLUMNS[el.props.dataSource].map(c => <option key={c} value={c}>{c}</option>)}</select>
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-gray-500 block">فیلد از رکورد گزارش (داده‌های فرم)</label>
+                              <select className="w-full p-1 text-xs border rounded" value={RECORD_FIELDS.some(f => f.key === el.props.valueField) ? el.props.valueField : ''} onChange={e => updateElement(el.id, { valueField: e.target.value, dataSource: undefined })}>
+                                <option value="">— انتخاب فیلد برای نمایش در چاپ —</option>
+                                {RECORD_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label} ({`{{${f.key}}}`})</option>)}
+                              </select>
+                            </div>
+                            {el.props.dataSource && (
+                            <>
+                            <select className="w-full p-1 text-xs border rounded" value={el.props.valueField || ''} onChange={e => updateElement(el.id, { valueField: e.target.value })}><option value="">فیلد مقدار از جدول...</option>{TABLE_COLUMNS[el.props.dataSource].map(c => <option key={c} value={c}>{c}</option>)}</select>
                             <select className="w-full p-1 text-xs border rounded" value={el.props.aggregation || 'COUNT'} onChange={e => updateElement(el.id, { aggregation: e.target.value })}>
                                 <option value="COUNT">تعداد رکورد (Count)</option>
                                 <option value="SUM">مجموع مقادیر (Sum)</option>
                                 <option value="AVG">میانگین مقادیر (Average)</option>
                             </select>
+                            </>
+                            )}
                         </>}
                     </div>)}
                 </>
@@ -1490,9 +1655,13 @@ export const ReportTemplateDesign: React.FC = () => {
                                 <ChevronDown className="w-3 h-3"/>
                             </button>
                         </div>
-                        <input type="text" placeholder="برچسب" value={item.label} onChange={e => { const items = [...el.props.detailsProps.items]; items[index].label = e.target.value; updateNestedProps('detailsProps', { ...el.props.detailsProps, items })}} className="w-1/2 p-1 border rounded text-xs" />
-                        <input type="text" placeholder="کلید فیلد (مثل tracking_code)" value={item.value || ''} onChange={e => { const items = [...el.props.detailsProps.items]; items[index].value = e.target.value; updateNestedProps('detailsProps', { ...el.props.detailsProps, items })}} className="w-1/2 p-1 border rounded text-xs ltr text-left" />
-                        <button onClick={() => { const items = el.props.detailsProps.items.filter((i:any)=>i.id !== item.id); updateNestedProps('detailsProps', { ...el.props.detailsProps, items }) }} className="p-1 text-red-500"><Trash2 className="w-3 h-3"/></button>
+                        <input type="text" placeholder="برچسب" value={item.label} onChange={e => { const items = [...el.props.detailsProps.items]; items[index].label = e.target.value; updateNestedProps('detailsProps', { ...el.props.detailsProps, items })}} className="flex-1 min-w-0 p-1 border rounded text-xs" />
+                        <input type="text" placeholder="کلید فیلد (مثل tracking_code)" value={item.value || ''} onChange={e => { const items = [...el.props.detailsProps.items]; items[index].value = e.target.value; updateNestedProps('detailsProps', { ...el.props.detailsProps, items })}} className="flex-1 min-w-0 p-1 border rounded text-xs ltr text-left" />
+                        <select className="w-24 shrink-0 p-1 text-[10px] border rounded bg-gray-50" value="" onChange={e => { const k = e.target.value; if (!k) return; const items = [...el.props.detailsProps.items]; items[index].value = k; updateNestedProps('detailsProps', { ...el.props.detailsProps, items }); e.target.value = ''; }} title="درج فیلد از رکورد گزارش">
+                          <option value="">فیلد...</option>
+                          {RECORD_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                        </select>
+                        <button onClick={() => { const items = el.props.detailsProps.items.filter((i:any)=>i.id !== item.id); updateNestedProps('detailsProps', { ...el.props.detailsProps, items }) }} className="p-1 text-red-500 shrink-0"><Trash2 className="w-3 h-3"/></button>
                     </div>
                 ))}
               </div>
@@ -1526,7 +1695,18 @@ export const ReportTemplateDesign: React.FC = () => {
         {el.type === 'TEXT' && (
           <div className="space-y-2">
             {renderGroupHeader('استایل متن', 'text')}
-            {!isCollapsed('text') && <TextStyleEditor path="textProps" label="استایل متن" />}
+            {!isCollapsed('text') && (
+            <>
+            <TextStyleEditor path="textProps" label="استایل متن" />
+            <div className="flex items-center gap-2 pt-1 border-t">
+              <label className="text-[10px] text-gray-500 shrink-0">درج فیلد از رکورد:</label>
+              <select className="flex-1 p-1 text-xs border rounded" value="" onChange={e => { const k = e.target.value; if (!k) return; const cur = (el.props.textProps?.text || ''); updateNestedProps('textProps.text', cur + (cur ? ' ' : '') + `{{${k}}}`); e.target.value = ''; }}>
+                <option value="">— انتخاب —</option>
+                {RECORD_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+              </select>
+            </div>
+            </>
+            )}
           </div>
         )}
         {el.type === 'IMAGE' && (
@@ -1696,155 +1876,64 @@ export const ReportTemplateDesign: React.FC = () => {
     );
   };
   
+  if (viewMode === 'LIST') {
+    return (
+      <>
+        <ConfirmModal
+          isOpen={!!activateConfirmTarget}
+          onClose={() => setActivateConfirmTarget(null)}
+          onConfirm={() => {
+            if (activateConfirmTarget) {
+              handleActivateTemplate(activateConfirmTarget.id, activateConfirmTarget.targetModule);
+              setActivateConfirmTarget(null);
+            }
+          }}
+          title="فعال‌سازی قالب"
+          message={activateConfirmTarget ? `آیا از فعال‌سازی قالب «${activateConfirmTarget.title || 'بدون عنوان'}» مطمئنید؟` : ''}
+          confirmText="تأیید"
+          cancelText="انصراف"
+          variant="warning"
+        />
+        <DataPage
+          title="طراحی قالب گزارش"
+          icon={LayoutTemplate}
+          data={allTemplates}
+          columns={listColumns}
+          isLoading={false}
+          selectedIds={selectedIds}
+          onSelect={setSelectedIds}
+          onAdd={handleListAdd}
+          onReload={refreshTemplates}
+          onEdit={handleListEdit}
+          onDelete={async (ids) => { ids.forEach(id => handleDeleteTemplate(id)); }}
+          extraActionsBeforeDivider={
+            selectedIds.length === 1 ? (() => {
+              const item = allTemplates.find(t => t.id === selectedIds[0]);
+              if (!item) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => setActivateConfirmTarget(item)}
+                  className="p-2.5 bg-green-50 text-green-600 rounded-xl hover:bg-green-100 transition"
+                  title="فعال‌سازی"
+                >
+                  <UploadCloud className="w-5 h-5" />
+                </button>
+              );
+            })() : null
+          }
+          exportName="ReportTemplates"
+        />
+      </>
+    );
+  }
+
   return (
     <div className="h-[calc(100vh-80px)] flex flex-col bg-gray-100 dark:bg-gray-900 overflow-hidden">
-      <div className="h-14 bg-white dark:bg-gray-800 border-b px-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setMainTab('DESIGN')}
-            className={`px-3 py-1.5 rounded-lg text-sm font-bold ${mainTab === 'DESIGN' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-700'}`}
-          >
-            طراحی قالب
-          </button>
-          <button
-            onClick={() => { refreshTemplates(); setMainTab('MANAGE'); }}
-            className={`px-3 py-1.5 rounded-lg text-sm font-bold ${mainTab === 'MANAGE' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-700'}`}
-          >
-            مدیریت نسخه‌ها
-          </button>
-        </div>
-        <div className="text-xs text-gray-500">
-          هر گزارش فقط یک قالب فعال دارد.
-        </div>
-      </div>
-
-      {mainTab === 'MANAGE' ? (
-        <div className="flex-1 overflow-auto p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
-            {groupedTemplates.map(group => (
-              <div key={group.moduleId} className="bg-white dark:bg-gray-800 rounded-xl border p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() =>
-                        setCollapsedModules(prev => ({
-                          ...prev,
-                          [group.moduleId]: !prev[group.moduleId],
-                        }))
-                      }
-                      className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
-                      title={collapsedModules[group.moduleId] ? 'باز کردن لیست نسخه‌ها' : 'جمع کردن لیست نسخه‌ها'}
-                    >
-                      {collapsedModules[group.moduleId] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-                    </button>
-                    <div>
-                      <h3 className="font-bold">{group.moduleLabel}</h3>
-                      <p className="text-xs text-gray-500 mt-0.5">{group.items.length} نسخه ثبت شده</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => { loadTemplateForModule(group.moduleId); setMainTab('DESIGN'); }}
-                    className="text-xs px-3 py-1.5 rounded bg-blue-50 text-blue-700"
-                  >
-                    طراحی نسخه جدید
-                  </button>
-                </div>
-                {collapsedModules[group.moduleId] ? (
-                  <p className="text-sm text-gray-400 py-2">لیست نسخه‌ها جمع شده است.</p>
-                ) : group.items.length === 0 ? (
-                  <p className="text-sm text-gray-400">هنوز قالبی ثبت نشده است.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {group.items.map((item: any) => (
-                      <div key={item.id} className="border rounded-lg p-3 bg-white dark:bg-gray-900/30">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm font-bold">{item.title}</span>
-                            <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">v{item.version}</span>
-                            {item.isActive && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">فعال</span>}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() =>
-                                setExpandedTemplateDetails(prev => ({
-                                  ...prev,
-                                  [item.id]: !prev[item.id],
-                                }))
-                              }
-                              className="text-xs px-2 py-1 rounded bg-gray-100"
-                            >
-                              {expandedTemplateDetails[item.id] ? 'جمع جزئیات' : 'جزئیات'}
-                            </button>
-                            <button
-                              onClick={() => { setTemplate(item); setSelectedElementId(item.elements?.[0]?.id || null); setMainTab('DESIGN'); }}
-                              className="text-xs px-3 py-1.5 rounded bg-gray-100"
-                            >
-                              باز کردن
-                            </button>
-                            <button
-                              onClick={() => handleActivateTemplate(item.id, group.moduleId)}
-                              disabled={item.isActive}
-                              className="text-xs px-3 py-1.5 rounded bg-green-50 text-green-700 disabled:opacity-40"
-                            >
-                              فعال‌سازی
-                            </button>
-                            <button
-                              onClick={() => handleDeleteTemplate(item.id)}
-                              className="text-xs px-3 py-1.5 rounded bg-red-50 text-red-700"
-                            >
-                              حذف
-                            </button>
-                          </div>
-                        </div>
-                        <div className="text-xs text-gray-500 mt-2">
-                          شناسه نسخه: <span className="font-mono ltr inline-block">{item.id}</span>
-                        </div>
-                        {expandedTemplateDetails[item.id] && (
-                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
-                              <div className="text-gray-500">زمان ساخت</div>
-                              <div className="font-bold mt-1">{formatDateTime(item.createdAt)}</div>
-                            </div>
-                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
-                              <div className="text-gray-500">آخرین ویرایش</div>
-                              <div className="font-bold mt-1">{formatDateTime(item.updatedAt)}</div>
-                            </div>
-                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
-                              <div className="text-gray-500">سازنده</div>
-                              <div className="font-bold mt-1">{item.createdBy || item.created_by || 'سیستم'}</div>
-                              {(item.createdByUsername || item.created_by_username) && (
-                                <div className="text-[11px] text-gray-500 mt-1 ltr text-left">
-                                  @{item.createdByUsername || item.created_by_username}
-                                </div>
-                              )}
-                            </div>
-                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
-                              <div className="text-gray-500">تعداد المان</div>
-                              <div className="font-bold mt-1">{Array.isArray(item.elements) ? item.elements.length : 0}</div>
-                            </div>
-                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
-                              <div className="text-gray-500">تعداد دیتاست</div>
-                              <div className="font-bold mt-1">{Array.isArray(item.datasets) ? item.datasets.length : 0}</div>
-                            </div>
-                            <div className="rounded-lg border bg-gray-50 px-3 py-2">
-                              <div className="text-gray-500">تعداد پارامتر</div>
-                              <div className="font-bold mt-1">{Array.isArray(item.parameters) ? item.parameters.length : 0}</div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden">
           <div className="w-56 bg-white dark:bg-gray-800 border-l flex flex-col z-20">
             <div className="p-4 border-b"><h2 className="font-bold flex items-center gap-2"><LayoutTemplate className="w-5 h-5 text-primary"/> ابزارها</h2></div>
-            <div className="flex-1 p-2 space-y-2">
+            <div className="flex-1 p-2 space-y-2 overflow-y-auto">
                 <button
                   type="button"
                   onClick={() => setCollapsedToolGroups(prev => ({ ...prev, base: !prev.base }))}
@@ -1916,7 +2005,7 @@ export const ReportTemplateDesign: React.FC = () => {
                   <div className="flex items-center gap-1 border-r pr-3 mr-1 shrink-0">
                     <button onClick={handleUndo} disabled={historyPast.length === 0} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="بازگشت"><Undo2 className="w-4 h-4" /></button>
                     <button onClick={handleRedo} disabled={historyFuture.length === 0} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="انجام مجدد"><Redo2 className="w-4 h-4" /></button>
-                    <button onClick={handleDuplicateSelected} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="کپی المان"><Copy className="w-4 h-4" /></button>
+                    <button onClick={handleDuplicateSelected} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="کپی المان (عین همین المان را اضافه کن)"><Copy className="w-4 h-4" /></button>
                     <button
                       onClick={handleToggleLockSelected}
                       disabled={!selectedElement}
@@ -1931,6 +2020,14 @@ export const ReportTemplateDesign: React.FC = () => {
                     <button onClick={() => alignSelected('center-x')} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="تراز وسط افقی"><AlignCenter className="w-4 h-4" /></button>
                     <button onClick={() => alignSelected('right')} disabled={!selectedElement} className="p-1.5 rounded bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors" title="تراز به راست"><AlignLeft className="w-4 h-4" /></button>
                   </div>
+                  {hasMultiSelection && (
+                  <div className="flex items-center gap-1 border-r pr-3 mr-1 shrink-0">
+                    <button onClick={sameWidthSelected} className="p-1.5 rounded bg-violet-100 hover:bg-violet-200 text-violet-700 transition-colors" title="همان عرض (مطابق اولین انتخاب)">همان عرض</button>
+                    <button onClick={sameHeightSelected} className="p-1.5 rounded bg-violet-100 hover:bg-violet-200 text-violet-700 transition-colors" title="همان ارتفاع">همان ارتفاع</button>
+                    <button onClick={distributeHorizontallySelected} className="p-1.5 rounded bg-violet-100 hover:bg-violet-200 text-violet-700 transition-colors" title="توزیع افقی یکسان">توزیع افقی</button>
+                    <button onClick={distributeVerticallySelected} className="p-1.5 rounded bg-violet-100 hover:bg-violet-200 text-violet-700 transition-colors" title="توزیع عمودی یکسان">توزیع عمودی</button>
+                  </div>
+                  )}
                   <div className="flex items-center gap-1 shrink-0 mx-auto">
                     <button onClick={() => setEnableSnap(v => !v)} className={`px-3 py-1 rounded-full text-xs font-bold transition-colors inline-flex items-center gap-1 ${enableSnap ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-100 text-gray-700'}`} title="مغناطیسی کردن چینش">
                       <Magnet className="w-3.5 h-3.5" />
@@ -1956,10 +2053,47 @@ export const ReportTemplateDesign: React.FC = () => {
                   </div>
                </div>
             </div>
-            <div className="flex-1 overflow-auto p-8 flex justify-center items-start" onClick={() => setSelectedElementId(null)}>
-               <div ref={canvasRef} className="bg-white shadow-2xl relative" style={{ width: '210mm', height: '297mm', padding: '1mm' }}>
+            <div className="flex-1 overflow-auto p-8 flex justify-center items-start" onClick={() => { setSelectedElementId(null); setSelectedElementIds([]); }}>
+               <div className="flex flex-col items-start shrink-0" style={{ width: '210mm' }}>
+                  {showRuler && (
+                    <div className="bg-gray-100 dark:bg-gray-700 border-b border-gray-300 flex text-[9px] text-gray-500 font-mono h-6 shrink-0" style={{ width: '210mm' }}>
+                      {Array.from({ length: 22 }).map((_, i) => (
+                        <span key={i} className="inline-block border-r border-gray-300 pr-0.5" style={{ width: '10mm' }}>{i * 10}</span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex">
+                    {showRuler && (
+                      <div className="bg-gray-100 dark:bg-gray-700 border-r border-gray-300 flex flex-col text-[9px] text-gray-500 font-mono w-6 shrink-0 items-end pr-0.5" style={{ height: '297mm' }}>
+                        {Array.from({ length: 30 }).map((_, i) => (
+                          <span key={i} className="block border-b border-gray-300" style={{ height: '10mm' }}>{i * 10}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div ref={canvasRef} className="bg-white shadow-2xl relative" style={{ width: '210mm', height: '297mm', padding: '1mm' }}>
+                      {showGridGuides && (
+                        <div
+                          className="absolute inset-0 pointer-events-none opacity-40"
+                          style={{
+                            backgroundImage: 'linear-gradient(to right, #d1d5db 1px, transparent 1px), linear-gradient(to bottom, #d1d5db 1px, transparent 1px)',
+                            backgroundSize: '10mm 10mm',
+                          }}
+                        />
+                      )}
                   {template.elements.map(el => (
-                    <div key={el.id} onClick={(e) => { e.stopPropagation(); setSelectedElementId(el.id); }} onMouseDown={(e) => startInteraction(e, 'move', el)} style={{ position: 'absolute', left: el.layout.x, top: el.layout.y, width: el.layout.width, height: el.layout.height, border: `1px ${selectedElementId === el.id ? 'dashed #3b82f6' : 'solid transparent'}`, cursor: el.props.locked ? 'not-allowed' : 'grab' }}>
+                    <div
+                      key={el.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (e.ctrlKey || e.metaKey) {
+                          setSelectedElementIds(prev => prev.includes(el.id) ? prev.filter(x => x !== el.id) : [...prev, el.id]);
+                          setSelectedElementId(el.id);
+                        } else {
+                          setSelectedElementIds([el.id]);
+                          setSelectedElementId(el.id);
+                        }
+                      }}
+                      onMouseDown={(e) => startInteraction(e, 'move', el)} style={{ position: 'absolute', left: el.layout.x, top: el.layout.y, width: el.layout.width, height: el.layout.height, border: `2px ${selectedElementIds.includes(el.id) ? 'dashed #3b82f6' : 'solid transparent'}`, cursor: el.props.locked ? 'not-allowed' : 'grab' }}>
                       {renderWidgetContent(el)}
                       {selectedElementId === el.id && !el.props.locked && (
                         [
@@ -1987,10 +2121,29 @@ export const ReportTemplateDesign: React.FC = () => {
                       )}
                     </div>
                   ))}
+                    </div>
+                  </div>
                </div>
             </div>
           </div>
           <div className="w-72 bg-white dark:bg-gray-800 border-r flex flex-col z-20">
+            {showLayers && (
+              <div className="p-4 border-b bg-gray-50 dark:bg-gray-900">
+                <h2 className="font-bold flex items-center gap-2 text-sm mb-2"><Layers className="w-4 h-4 text-orange-500"/> لایه‌ها</h2>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {template.elements.map((el, i) => (
+                    <button
+                      key={el.id}
+                      type="button"
+                      onClick={() => { setSelectedElementId(el.id); setSelectedElementIds([el.id]); }}
+                      className={`w-full text-right px-2 py-1.5 rounded text-xs truncate block ${selectedElementIds.includes(el.id) ? 'bg-primary/20 text-primary font-medium' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                    >
+                      {i + 1}. {el.type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="p-4 border-b bg-gray-50 space-y-2">
               <h2 className="font-bold flex items-center gap-2"><Settings className="w-5 h-5 text-gray-500"/> تنظیمات</h2>
               <div className="flex items-center gap-2">
@@ -2016,7 +2169,6 @@ export const ReportTemplateDesign: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
     </div>
   );
 };

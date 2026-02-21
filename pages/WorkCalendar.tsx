@@ -2,11 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CalendarRange, ChevronRight, ChevronLeft, Sun, Moon, Coffee, Info, 
-  StickyNote, Timer, Wrench, FileText, X, CheckCircle, AlertTriangle, Clock
+  StickyNote, Timer, Wrench, FileText, X, CheckCircle, AlertTriangle, Clock, Loader2
 } from 'lucide-react';
 import { getShamsiDate, getShiftRotation, jalaliToGregorian, toPersianDigits } from '../utils';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
+import { WorkOrders } from './WorkOrders';
+import { ShiftReportView } from './ShiftHandoverReport';
 
 interface DayEvents {
   notes: any[];
@@ -27,6 +29,9 @@ export const WorkCalendar: React.FC = () => {
   
   // Modal State
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [viewingItem, setViewingItem] = useState<{ type: 'note' | 'pm' | 'workOrder' | 'report'; id: string } | null>(null);
+  const [viewDetailData, setViewDetailData] = useState<any>(null);
+  const [viewDetailLoading, setViewDetailLoading] = useState(false);
 
   const monthNames = [
     "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
@@ -138,8 +143,69 @@ export const WorkCalendar: React.FC = () => {
     return <Coffee className="w-3 h-3" />;
   };
 
+  const handleViewItem = (e: React.MouseEvent, type: 'note' | 'pm' | 'workOrder' | 'report', id: string) => {
+    e.stopPropagation();
+    setViewingItem({ type, id });
+    setViewDetailData(null);
+  };
+
+  useEffect(() => {
+    if (!viewingItem) return;
+
+    const fetchDetail = async () => {
+      setViewDetailLoading(true);
+      try {
+        if (viewingItem.type === 'note') {
+          const { data } = await supabase.from('personal_notes').select('*').eq('id', viewingItem.id).single();
+          setViewDetailData(data);
+        } else if (viewingItem.type === 'pm') {
+          const { data } = await supabase.from('pm_plans').select('*, equipment(name, code)').eq('id', viewingItem.id).single();
+          setViewDetailData(data);
+        } else if (viewingItem.type === 'workOrder') {
+          const { data } = await supabase.from('work_orders').select('*').eq('id', viewingItem.id).single();
+          if (data) {
+            setViewDetailData({
+              ...data,
+              equipCode: data.equipment_code,
+              equipName: data.equipment_name,
+              equipLocalName: data.local_name,
+              failureDesc: data.failure_description,
+              requester: data.requester_name,
+              reportDate: data.request_date,
+              reportTime: data.request_time,
+              workCategory: data.work_category,
+              workType: data.work_type,
+              actionDesc: data.action_taken,
+              labor: data.labor_details,
+              labor_details: data.labor_details,
+              parts: data.used_parts,
+              used_parts: data.used_parts,
+              docs: data.attachments,
+              attachments: data.attachments,
+            });
+          } else setViewDetailData(null);
+        } else if (viewingItem.type === 'report') {
+          const { data } = await supabase.from('shift_reports').select('*').eq('id', viewingItem.id).single();
+          setViewDetailData(data?.full_data || null);
+        }
+      } catch (e) {
+        console.error('Fetch detail error:', e);
+        setViewDetailData(null);
+      } finally {
+        setViewDetailLoading(false);
+      }
+    };
+
+    fetchDetail();
+  }, [viewingItem]);
+
+  const closeViewModal = () => {
+    setViewingItem(null);
+    setViewDetailData(null);
+  };
+
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-20">
+    <div className="w-full max-w-full space-y-6 pb-20">
       
       {/* Header Controls */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 gap-6">
@@ -247,8 +313,8 @@ export const WorkCalendar: React.FC = () => {
                                       {['A', 'B', 'C'].map(s => {
                                           const shift = rotations[s];
                                           return (
-                                              <div key={s} className={`flex items-center justify-between px-1 py-0.5 rounded text-[8px] font-bold border opacity-80 group-hover:opacity-100 ${getStatusColor(shift?.type || '')}`}>
-                                                  <span>{s}: {shift?.label.split(' ')[0]}</span>
+                                              <div key={s} className={`flex items-center justify-between px-1 py-0.5 rounded text-[8px] font-bold border opacity-80 group-hover:opacity-100 ${getStatusColor(shift?.type || '')}`} title={shift?.label}>
+                                                  <span className="truncate" title={shift?.label}>{s}: {shift?.label}</span>
                                                   {getStatusIcon(shift?.type || '')}
                                               </div>
                                           );
@@ -297,7 +363,7 @@ export const WorkCalendar: React.FC = () => {
                       {/* Shift Status Widget */}
                       <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
                           <h3 className="font-bold text-gray-700 dark:text-gray-200 mb-3 flex items-center gap-2 text-sm">
-                              <Clock className="w-4 h-4 text-primary"/> شیفت‌های کاری امروز
+                              <Clock className="w-4 h-4 text-primary"/> نوبت کاری شیفت‌ها
                           </h3>
                           <div className="grid grid-cols-3 gap-3">
                               {['A', 'B', 'C'].map(s => {
@@ -321,7 +387,7 @@ export const WorkCalendar: React.FC = () => {
                           {eventsMap[selectedDate]?.notes.length > 0 ? (
                               <div className="space-y-2">
                                   {eventsMap[selectedDate].notes.map(n => (
-                                      <div key={n.id} className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl border border-blue-100 dark:border-blue-800 flex justify-between items-center">
+                                      <div key={n.id} onClick={e => handleViewItem(e, 'note', n.id)} className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl border border-blue-100 dark:border-blue-800 flex justify-between items-center cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition">
                                           <span className={`text-sm ${n.is_completed ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-200'}`}>{n.title}</span>
                                           {n.is_completed && <CheckCircle className="w-4 h-4 text-green-500"/>}
                                       </div>
@@ -340,7 +406,7 @@ export const WorkCalendar: React.FC = () => {
                           {eventsMap[selectedDate]?.pms.length > 0 ? (
                               <div className="space-y-2">
                                   {eventsMap[selectedDate].pms.map(p => (
-                                      <div key={p.id} className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-xl border border-orange-100 dark:border-orange-800">
+                                      <div key={p.id} onClick={e => handleViewItem(e, 'pm', p.id)} className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-xl border border-orange-100 dark:border-orange-800 cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/30 transition">
                                           <div className="font-bold text-sm text-gray-800 dark:text-gray-200">{p.title}</div>
                                           <div className="text-xs text-gray-500 mt-1">{p.equipment?.name}</div>
                                       </div>
@@ -359,7 +425,7 @@ export const WorkCalendar: React.FC = () => {
                           {eventsMap[selectedDate]?.workOrders.length > 0 ? (
                               <div className="space-y-2">
                                   {eventsMap[selectedDate].workOrders.map(w => (
-                                      <div key={w.id} className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-200 dark:border-gray-700 flex justify-between items-center shadow-sm">
+                                      <div key={w.id} onClick={e => handleViewItem(e, 'workOrder', w.id)} className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-200 dark:border-gray-700 flex justify-between items-center shadow-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
                                           <div>
                                               <div className="font-bold text-sm">{w.equipment_name || 'تجهیز عمومی'}</div>
                                               <div className="text-xs text-gray-500 mt-0.5 truncate max-w-[200px]">{w.failure_description}</div>
@@ -383,7 +449,7 @@ export const WorkCalendar: React.FC = () => {
                           {eventsMap[selectedDate]?.reports.length > 0 ? (
                               <div className="space-y-2">
                                   {eventsMap[selectedDate].reports.map(r => (
-                                      <div key={r.id} className="bg-green-50 dark:bg-green-900/20 p-3 rounded-xl border border-green-100 dark:border-green-800 flex justify-between items-center">
+                                      <div key={r.id} onClick={e => handleViewItem(e, 'report', r.id)} className="bg-green-50 dark:bg-green-900/20 p-3 rounded-xl border border-green-100 dark:border-green-800 flex justify-between items-center cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30 transition">
                                           <div className="flex items-center gap-2">
                                               <span className="font-bold text-sm">شیفت {r.shift_name}</span>
                                               <span className="text-xs text-gray-500 font-mono">({r.tracking_code})</span>
@@ -399,6 +465,58 @@ export const WorkCalendar: React.FC = () => {
                           )}
                       </div>
 
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* View-Only Detail Modal */}
+      {viewingItem && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
+              <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+                  <div className="flex-none flex justify-between items-center p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                      <h3 className="font-bold text-lg">
+                          {viewingItem.type === 'note' && 'مشاهده یادداشت'}
+                          {viewingItem.type === 'pm' && 'مشاهده برنامه نت'}
+                          {viewingItem.type === 'workOrder' && 'مشاهده دستور کار'}
+                          {viewingItem.type === 'report' && 'مشاهده گزارش شیفت'}
+                      </h3>
+                      <button onClick={closeViewModal} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition">
+                          <X className="w-5 h-5" />
+                      </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 min-h-[200px]">
+                      {viewDetailLoading ? (
+                          <div className="flex items-center justify-center py-12">
+                              <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                          </div>
+                      ) : viewingItem.type === 'note' && viewDetailData ? (
+                          <div className="space-y-3">
+                              <div><span className="text-xs text-gray-500">عنوان:</span> <span className="font-bold">{viewDetailData.title}</span></div>
+                              {viewDetailData.content && <div><span className="text-xs text-gray-500">محتوا:</span> <p className="mt-1 whitespace-pre-wrap">{viewDetailData.content}</p></div>}
+                              {viewDetailData.tags?.length > 0 && <div><span className="text-xs text-gray-500">برچسب‌ها:</span> {viewDetailData.tags.join('، ')}</div>}
+                              {viewDetailData.reminder_date && <div><span className="text-xs text-gray-500">یادآوری:</span> {viewDetailData.reminder_date} {viewDetailData.reminder_time || ''}</div>}
+                              {viewDetailData.is_completed && <div className="flex items-center gap-1 text-green-600"><CheckCircle className="w-4 h-4" /> انجام شده</div>}
+                          </div>
+                      ) : viewingItem.type === 'pm' && viewDetailData ? (
+                          <div className="space-y-3">
+                              <div><span className="text-xs text-gray-500">عنوان:</span> <span className="font-bold">{viewDetailData.title}</span></div>
+                              <div><span className="text-xs text-gray-500">تجهیز:</span> {viewDetailData.equipment?.name || viewDetailData.equipName || '-'}</div>
+                              <div><span className="text-xs text-gray-500">تاریخ اجرا:</span> {viewDetailData.next_run_date}</div>
+                              <div><span className="text-xs text-gray-500">دوره:</span> {viewDetailData.frequency_type} هر {viewDetailData.frequency_value}</div>
+                              {viewDetailData.description && <div><span className="text-xs text-gray-500">توضیحات:</span> <p className="mt-1">{viewDetailData.description}</p></div>}
+                          </div>
+                      ) : viewingItem.type === 'workOrder' && viewDetailData ? (
+                          <div className="bg-gray-100 dark:bg-black/20 rounded-xl overflow-hidden">
+                              <WorkOrders initialData={viewDetailData} isViewOnly={true} />
+                          </div>
+                      ) : viewingItem.type === 'report' && viewDetailData ? (
+                          <div className="rounded-xl overflow-hidden">
+                              <ShiftReportView reportData={viewDetailData} adminAvatar={null} onBack={closeViewModal} />
+                          </div>
+                      ) : !viewDetailLoading && !viewDetailData ? (
+                          <div className="text-center py-8 text-gray-500">اطلاعاتی یافت نشد.</div>
+                      ) : null}
                   </div>
               </div>
           </div>

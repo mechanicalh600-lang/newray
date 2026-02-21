@@ -61,6 +61,15 @@ export const WarehouseReport: React.FC<Props> = ({ user }) => {
     setLoading(false);
   };
 
+  const formatDateTime = (raw?: string) => {
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    const time = dt.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const date = dt.toLocaleDateString('fa-IR');
+    return `${time} | ${date}`;
+  };
+
   const handleDelete = async (ids: string[]) => {
     await supabase.from('warehouse_reports').delete().in('id', ids);
     setItems(prev => prev.filter(i => !ids.includes(i.id)));
@@ -116,7 +125,7 @@ export const WarehouseReport: React.FC<Props> = ({ user }) => {
     };
 
     return (
-      <div className="max-w-3xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-xl shadow space-y-4">
+      <div className="w-full max-w-full p-6 bg-white dark:bg-gray-800 rounded-xl shadow space-y-4">
         <h2 className="text-xl font-bold mb-4">ثبت سند انبار</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <ShamsiDatePicker label="تاریخ" value={formData.report_date} onChange={v => setFormData(prev => ({ ...prev, report_date: v }))} />
@@ -167,12 +176,13 @@ export const WarehouseReport: React.FC<Props> = ({ user }) => {
         onPrint={(item) => openReportTemplatePreview(navigate, 'warehouse-report', item)}
         exportName="WarehouseReports"
         columns={[
-          { header: 'کد رهگیری', accessor: (i: any) => <span className="font-mono font-bold">{i.tracking_code}</span>, sortKey: 'tracking_code' },
-          { header: 'تاریخ', accessor: (i: any) => i.report_date, sortKey: 'report_date' },
+          { header: 'کد گزارش', accessor: (i: any) => <span className="font-mono font-bold">{i.tracking_code}</span>, sortKey: 'tracking_code' },
+          { header: 'تاریخ سند', accessor: (i: any) => i.report_date, sortKey: 'report_date' },
+          { header: 'تاریخ ثبت', accessor: (i: any) => formatDateTime(i.created_at), sortKey: 'created_at' },
           { header: 'نوع', accessor: (i: any) => i.type === 'ENTRY' ? 'ورود' : 'خروج', sortKey: 'type' },
           { header: 'کالا', accessor: (i: any) => i.part_name, sortKey: 'part_name' },
           { header: 'تعداد', accessor: (i: any) => `${i.qty} ${i.unit || ''}`, sortKey: 'qty' },
-          { header: 'طرف حساب', accessor: (i: any) => i.receiver_name, sortKey: 'receiver_name' },
+          { header: 'تحویل گیرنده', accessor: (i: any) => i.receiver_name, sortKey: 'receiver_name' },
         ]}
       />
   );

@@ -90,7 +90,7 @@ export const SoftwareErrors: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-20">
+    <div className="w-full max-w-full space-y-6 pb-20">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <div className="bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm">

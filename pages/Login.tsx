@@ -34,21 +34,23 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [showSql, setShowSql] = useState(false);
   const [copied, setCopied] = useState(false);
   const [orgLogo, setOrgLogo] = useState<string>('');
+  const [orgName, setOrgName] = useState<string>('نرم افزار هوشمند رای‌نو');
 
   useEffect(() => {
     checkConnection();
-    loadOrgLogo();
+    loadOrgSettings();
   }, []);
 
-  const loadOrgLogo = async () => {
+  const loadOrgSettings = async () => {
     try {
       const { data, error } = await supabase
         .from('app_settings')
-        .select('org_logo')
+        .select('org_name, org_logo')
         .order('created_at', { ascending: true })
         .limit(1);
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : null;
+      setOrgName(row?.org_name?.trim() || 'نرم افزار هوشمند رای‌نو');
       setOrgLogo(row?.org_logo || '');
     } catch {
       setOrgLogo('');
@@ -261,7 +263,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
         {/* Branding Section (Title) */}
         <div className="text-center mb-6 space-y-2 animate-fadeIn">
              <h1 className="text-xl font-black text-[#800020] dark:text-red-400 tracking-tight drop-shadow-sm leading-tight">
-                شرکت توسعه معدنی و صنعتی صبانور
+                {orgName}
              </h1>
              <p className="text-base font-bold text-gray-600 dark:text-gray-300 tracking-wide">
                 سامانه هوشمند نگهداری و تعمیرات

@@ -1,18 +1,15 @@
-
-import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import React, { Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { ReportRouteResolver } from './components/ReportRouteResolver';
 import { SnowEffect } from './components/SnowEffect';
-import { ChatAssistant } from './components/ChatAssistant'; 
-import { SplashScreen } from './components/SplashScreen'; 
-import { User, UserRole } from './types';
-import { getShamsiDate, getTime, getPublicIp } from './utils';
-import { supabase } from './supabaseClient';
-import { Loader2 } from 'lucide-react';
+import { ChatAssistant } from './components/ChatAssistant';
+import { SplashScreen } from './components/SplashScreen';
+import { AppProvider, useApp } from './contexts/AppContext';
+import { UserRole } from './types';
+import { Loader2, Clock } from 'lucide-react';
 
-// FIX: The following lazy-loaded components have been updated to include default exports.
-// This resolves the TypeScript error "Property 'default' is missing".
-const Login = React.lazy(() => import('./pages/Login'));
+import Login from './pages/Login';
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
 const AdminPanel = React.lazy(() => import('./pages/AdminPanel'));
 const WorkOrders = React.lazy(() => import('./pages/WorkOrders'));
@@ -31,6 +28,7 @@ const Messages = React.lazy(() => import('./pages/Messages'));
 const Notes = React.lazy(() => import('./pages/Notes'));
 const WorkflowDesigner = React.lazy(() => import('./pages/WorkflowDesigner'));
 const Reports = React.lazy(() => import('./pages/Reports'));
+const ListReport = React.lazy(() => import('./pages/ListReport'));
 const ReportTemplateDesign = React.lazy(() => import('./pages/ReportTemplateDesign'));
 const ReportFormDesign = React.lazy(() => import('./pages/ReportFormDesign'));
 const ReportTemplatePreview = React.lazy(() => import('./pages/ReportTemplatePreview'));
@@ -56,7 +54,6 @@ const DataEntryToolSettings = React.lazy(() => import('./pages/DataEntryToolSett
 const SoftwareErrors = React.lazy(() => import('./pages/SoftwareErrors'));
 const DataChangeTracking = React.lazy(() => import('./pages/DataChangeTracking'));
 
-// Loading Fallback Component
 const PageLoader = () => (
   <div className="flex flex-col items-center justify-center h-full w-full min-h-[400px]">
     <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
@@ -64,249 +61,100 @@ const PageLoader = () => (
   </div>
 );
 
-const App: React.FC = () => {
-  const [showSplash, setShowSplash] = useState(true);
-  const [inactivityLimit, setInactivityLimit] = useState(300000); // Default 5 mins (ms)
-  
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      const saved = localStorage.getItem('currentUser');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      localStorage.removeItem('currentUser');
-      return null;
-    }
-  });
-  
-  const [darkMode, setDarkMode] = useState<boolean>(() => {
-    return localStorage.getItem('theme') === 'dark';
-  });
+function AppBody() {
+  const { user, darkMode, setDarkMode, snowMode, setSnowMode, showSplash, autoLogoutModal, setAutoLogoutModal, handleLogin, handleLogout, handleUpdateUser } = useApp();
 
-  const [snowMode, setSnowMode] = useState<boolean>(() => {
-    return localStorage.getItem('snowMode') === 'true';
-  });
-
-  const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const safeInsertSystemLog = useCallback(async (payload: any) => {
-    try {
-      const { error } = await supabase.from('system_logs').insert([payload]);
-      if (!error) return;
-
-      // If user_id is not linked to app_users (FK violation), retry without user_id.
-      if (error.code === '23503') {
-        const fallbackPayload = { ...payload };
-        delete fallbackPayload.user_id;
-        await supabase.from('system_logs').insert([fallbackPayload]);
-        return;
-      }
-
-      throw error;
-    } catch (e) {
-      // Keep app flow stable; logging must never block user actions.
-      console.warn('System log insert skipped:', e);
-    }
-  }, []);
-
-  useEffect(() => {
-      const fetchSettings = async () => {
-          try {
-              const { data, error } = await supabase
-                .from('app_settings')
-                .select('session_timeout_minutes, org_logo')
-                .order('created_at', { ascending: true })
-                .limit(1);
-              if (error) throw error;
-              const row = Array.isArray(data) ? data[0] : null;
-              if (row && row.session_timeout_minutes) {
-                  setInactivityLimit(row.session_timeout_minutes * 60000);
-              }
-              if (
-                row?.org_logo &&
-                user &&
-                String(user.username || '').toLowerCase() === 'admin' &&
-                !user.avatar
-              ) {
-                const next = { ...user, avatar: row.org_logo };
-                setUser(next);
-                localStorage.setItem('currentUser', JSON.stringify(next));
-              }
-          } catch (e) {
-              console.warn("Failed to fetch settings, using defaults.");
-          }
-      };
-      fetchSettings();
-  }, [user]);
-
-  useEffect(() => {
-      const lastActivity = localStorage.getItem('lastActivityTime');
-      if (lastActivity && user) {
-        const diff = Date.now() - parseInt(lastActivity, 10);
-        if (diff > inactivityLimit) {
-          handleLogout(true);
-        }
-      }
-  }, [user, inactivityLimit]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowSplash(false);
-    }, 6000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleLogout = useCallback(async (isAuto = false) => {
-    if (user) {
-        const ip = await getPublicIp();
-        await safeInsertSystemLog({
-          user_id: user.id,
-          user_name: user.fullName,
-          personnel_code: user.personnelCode || '---',
-          action: isAuto ? 'خروج خودکار (عدم فعالیت)' : 'خروج از سیستم',
-          ip_address: ip,
-          details: `Logout Time: ${getShamsiDate()} ${getTime()}`
-        });
-        const theme = localStorage.getItem('theme');
-        const snow = localStorage.getItem('snowMode');
-        localStorage.clear();
-        if (theme) localStorage.setItem('theme', theme);
-        if (snow) localStorage.setItem('snowMode', snow);
-    }
-    setUser(null);
-    if (isAuto) alert(`کاربر گرامی، به دلیل عدم فعالیت بیش از ${Math.round(inactivityLimit/60000)} دقیقه، جهت امنیت از سیستم خارج شدید.`);
-  }, [user, inactivityLimit, safeInsertSystemLog]);
-
-  const resetInactivityTimer = useCallback(() => {
-    if (!user) return;
-    localStorage.setItem('lastActivityTime', Date.now().toString());
-    if (logoutTimerRef.current) {
-      clearTimeout(logoutTimerRef.current);
-    }
-    logoutTimerRef.current = setTimeout(() => {
-      handleLogout(true);
-    }, inactivityLimit);
-  }, [user, handleLogout, inactivityLimit]);
-
-  useEffect(() => {
-    if (!user) return;
-    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'];
-    const activityHandler = () => resetInactivityTimer();
-    events.forEach(event => document.addEventListener(event, activityHandler));
-    resetInactivityTimer();
-    return () => {
-      events.forEach(event => document.removeEventListener(event, activityHandler));
-      if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
-    };
-  }, [user, resetInactivityTimer]);
-
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [darkMode]);
-
-  const handleLogin = async (newUser: User) => {
-    setUser(newUser);
-    localStorage.setItem('currentUser', JSON.stringify(newUser));
-    localStorage.setItem('lastActivityTime', Date.now().toString());
-    const ip = await getPublicIp();
-    await safeInsertSystemLog({
-      user_id: newUser.id,
-      user_name: newUser.fullName,
-      personnel_code: newUser.personnelCode || (newUser.username === 'admin' ? '9999' : '0000'),
-      action: 'ورود به سیستم',
-      ip_address: ip,
-      details: `Role: ${newUser.role}`
-    });
-  };
-
-  const handleUpdateUser = (updatedUser: User) => {
-    setUser(updatedUser);
-    localStorage.setItem('currentUser', JSON.stringify(updatedUser));
-  };
-
-  if (showSplash) {
-    return <SplashScreen />;
-  }
+  if (showSplash) return <SplashScreen />;
 
   return (
     <HashRouter>
       <SnowEffect enabled={snowMode} />
+      {autoLogoutModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full overflow-visible border border-gray-200 dark:border-gray-600">
+            <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2">
+              <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center ring-4 ring-white dark:ring-gray-800">
+                <Clock className="w-8 h-8 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+              </div>
+            </div>
+            <div className="p-6 pt-12 flex flex-col items-center text-center">
+              <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">پایان نشست کاربری</h3>
+              <p className="text-gray-600 dark:text-gray-300 leading-relaxed mb-6">
+                کاربر گرامی، به دلیل عدم فعالیت به مدت <span className="font-bold text-primary">{autoLogoutModal.minutes}</span> دقیقه، جهت حفظ امنیت از سیستم خارج شدید.
+              </p>
+              <button
+                onClick={() => setAutoLogoutModal(null)}
+                className="w-full py-3 px-4 bg-gray-800 hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 text-white font-bold rounded-xl transition-colors"
+              >
+                متوجه شدم
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {user && <ChatAssistant user={user} />}
-      <Layout 
-        user={user} 
-        onLogout={() => handleLogout(false)}
-        darkMode={darkMode}
-        toggleDarkMode={() => setDarkMode(!darkMode)}
-      >
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-                <Route path="/login" element={!user ? <Login onLogin={handleLogin} /> : <Navigate to="/" />} />
-                <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-                <Route path="/work-calendar" element={user ? <WorkCalendar /> : <Navigate to="/login" />} />
-                <Route path="/inbox" element={user ? <Inbox user={user} /> : <Navigate to="/login" />} />
-                <Route path="/messages" element={user ? <Messages user={user} /> : <Navigate to="/login" />} />
-                <Route path="/notes" element={user ? <Notes user={user} /> : <Navigate to="/login" />} />
-                <Route path="/reports" element={user ? <Reports /> : <Navigate to="/login" />} />
-                <Route path="/report-template-design" element={user ? <ReportTemplateDesign /> : <Navigate to="/login" />} />
-                <Route path="/report-form-design" element={user?.role === UserRole.ADMIN ? <ReportFormDesign user={user} /> : <Navigate to="/" />} />
-                <Route path="/report-template-preview" element={user ? <ReportTemplatePreview /> : <Navigate to="/login" />} />
-                <Route path="/reports/:slug" element={user ? <DynamicReportRuntime user={user} /> : <Navigate to="/login" />} />
-                
-                {/* Reports Group Routes */}
-                <Route path="/control-room" element={user ? <ControlRoomReport user={user} /> : <Navigate to="/login" />} />
-                <Route path="/shift-report" element={user ? <ShiftHandover user={user} /> : <Navigate to="/login" />} />
-                <Route path="/production-report" element={user ? <ProductionReport user={user} /> : <Navigate to="/login" />} />
-                <Route path="/lab-report" element={user ? <LabReport user={user} /> : <Navigate to="/login" />} />
-                <Route path="/warehouse-report" element={user ? <WarehouseReport user={user} /> : <Navigate to="/login" />} />
-                <Route path="/scale-report" element={user ? <ScaleReport user={user} /> : <Navigate to="/login" />} />
-                <Route path="/hse-report" element={user ? <HSEReport /> : <Navigate to="/login" />} />
-                
-                <Route path="/work-orders" element={user ? <WorkOrderList /> : <Navigate to="/login" />} />
-                <Route path="/work-orders/new" element={user ? <WorkOrders /> : <Navigate to="/login" />} />
-                <Route path="/projects" element={user ? <Projects user={user} /> : <Navigate to="/login" />} />
-                <Route path="/performance" element={user ? <Performance user={user} /> : <Navigate to="/login" />} />
-                <Route path="/part-requests" element={user ? <PartRequests user={user} /> : <Navigate to="/login" />} />
-                <Route path="/inspections" element={user ? <Inspections user={user} /> : <Navigate to="/login" />} />
-                <Route path="/documents" element={user ? <Documents /> : <Navigate to="/login" />} />
-                <Route path="/meetings" element={user ? <Meetings user={user} /> : <Navigate to="/login" />} />
-                <Route path="/suggestions" element={user ? <Suggestions user={user} /> : <Navigate to="/login" />} />
-                <Route path="/purchases" element={user ? <PurchaseRequests user={user} /> : <Navigate to="/login" />} />
-                <Route path="/workflow-designer" element={user?.role === UserRole.ADMIN ? <WorkflowDesigner /> : <Navigate to="/" />} />
-                
-                {/* Updated Admin Route for Dynamic Tabs */}
-                <Route path="/admin" element={user?.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
-                <Route path="/admin/:tab" element={user?.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
-
-                <Route path="/settings" element={user ? <Settings user={user} onUpdateUser={handleUpdateUser} snowMode={snowMode} setSnowMode={setSnowMode} /> : <Navigate to="/login" />} />
-                
-                {/* System Config */}
-                <Route path="/system-config" element={user?.role === UserRole.ADMIN ? <SystemConfig /> : <Navigate to="/" />} />
-                <Route path="/data-entry-tool-settings" element={user?.role === UserRole.ADMIN ? <DataEntryToolSettings /> : <Navigate to="/" />} />
-                <Route path="/software-errors" element={user?.role === UserRole.ADMIN ? <SoftwareErrors /> : <Navigate to="/" />} />
-                <Route path="/data-change-tracking" element={user?.role === UserRole.ADMIN ? <DataChangeTracking /> : <Navigate to="/" />} />
-
-                {/* NEW MODULES */}
-                <Route path="/pm-scheduler" element={user ? <PMScheduler user={user} /> : <Navigate to="/login" />} />
-                <Route path="/bom" element={user ? <BillOfMaterials user={user} /> : <Navigate to="/login" />} />
-                <Route path="/permits" element={user ? <PermitToWork user={user} /> : <Navigate to="/login" />} />
-                
-                <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
-                <Route path="/kpis" element={user ? <KPIs /> : <Navigate to="/login" />} />
-                <Route path="/training" element={user ? <Training /> : <Navigate to="/login" />} />
-                <Route path="/training-courses" element={user ? <TrainingCourses /> : <Navigate to="/login" />} />
-                <Route path="/integration" element={user ? <Integration /> : <Navigate to="/login" />} />
-
-                <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
-          </Suspense>
+      <Layout user={user} onLogout={() => handleLogout(false)} darkMode={darkMode} toggleDarkMode={() => setDarkMode(!darkMode)}>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/login" element={!user ? <Login onLogin={handleLogin} /> : <Navigate to="/" />} />
+            <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
+            <Route path="/work-calendar" element={user ? <WorkCalendar /> : <Navigate to="/login" />} />
+            <Route path="/inbox" element={user ? <Inbox user={user} /> : <Navigate to="/login" />} />
+            <Route path="/messages" element={user ? <Messages user={user} /> : <Navigate to="/login" />} />
+            <Route path="/notes" element={user ? <Notes user={user} /> : <Navigate to="/login" />} />
+            <Route path="/reports" element={user ? <Reports /> : <Navigate to="/login" />} />
+            <Route path="/list-report" element={user ? <ListReport /> : <Navigate to="/login" />} />
+            <Route path="/list-report/new" element={user ? <ListReport /> : <Navigate to="/login" />} />
+            <Route path="/list-report/edit/:id" element={user ? <ListReport /> : <Navigate to="/login" />} />
+            <Route path="/report-template-design" element={user ? <ReportTemplateDesign /> : <Navigate to="/login" />} />
+            <Route path="/report-form-design" element={user?.role === UserRole.ADMIN ? <ReportFormDesign user={user} /> : <Navigate to="/" />} />
+            <Route path="/report-template-preview" element={user ? <ReportTemplatePreview /> : <Navigate to="/login" />} />
+            <Route path="/reports/:slug" element={user ? <DynamicReportRuntime user={user} /> : <Navigate to="/login" />} />
+            <Route path="/control-room" element={user ? <ReportRouteResolver path="/control-room" FallbackComponent={ControlRoomReport} user={user} /> : <Navigate to="/login" />} />
+            <Route path="/shift-report" element={user ? <ReportRouteResolver path="/shift-report" FallbackComponent={ShiftHandover} user={user} /> : <Navigate to="/login" />} />
+            <Route path="/production-report" element={user ? <ReportRouteResolver path="/production-report" FallbackComponent={ProductionReport} user={user} /> : <Navigate to="/login" />} />
+            <Route path="/lab-report" element={user ? <ReportRouteResolver path="/lab-report" FallbackComponent={LabReport} user={user} /> : <Navigate to="/login" />} />
+            <Route path="/warehouse-report" element={user ? <ReportRouteResolver path="/warehouse-report" FallbackComponent={WarehouseReport} user={user} /> : <Navigate to="/login" />} />
+            <Route path="/scale-report" element={user ? <ReportRouteResolver path="/scale-report" FallbackComponent={ScaleReport} user={user} /> : <Navigate to="/login" />} />
+            <Route path="/hse-report" element={user ? <ReportRouteResolver path="/hse-report" FallbackComponent={HSEReport} user={user} /> : <Navigate to="/login" />} />
+            <Route path="/work-orders" element={user ? <WorkOrderList /> : <Navigate to="/login" />} />
+            <Route path="/work-orders/new" element={user ? <WorkOrders /> : <Navigate to="/login" />} />
+            <Route path="/projects" element={user ? <Projects user={user} /> : <Navigate to="/login" />} />
+            <Route path="/performance" element={user ? <Performance user={user} /> : <Navigate to="/login" />} />
+            <Route path="/part-requests" element={user ? <PartRequests user={user} /> : <Navigate to="/login" />} />
+            <Route path="/inspections" element={user ? <Inspections user={user} /> : <Navigate to="/login" />} />
+            <Route path="/documents" element={user ? <Documents /> : <Navigate to="/login" />} />
+            <Route path="/meetings" element={user ? <Meetings user={user} /> : <Navigate to="/login" />} />
+            <Route path="/suggestions" element={user ? <Suggestions user={user} /> : <Navigate to="/login" />} />
+            <Route path="/purchases" element={user ? <PurchaseRequests user={user} /> : <Navigate to="/login" />} />
+            <Route path="/workflow-designer" element={user?.role === UserRole.ADMIN ? <WorkflowDesigner /> : <Navigate to="/" />} />
+            <Route path="/admin" element={user?.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
+            <Route path="/admin/:tab" element={user?.role === UserRole.ADMIN ? <AdminPanel /> : <Navigate to="/" />} />
+            <Route path="/settings" element={user ? <Settings user={user} onUpdateUser={handleUpdateUser} snowMode={snowMode} setSnowMode={setSnowMode} /> : <Navigate to="/login" />} />
+            <Route path="/system-config" element={user?.role === UserRole.ADMIN ? <SystemConfig /> : <Navigate to="/" />} />
+            <Route path="/data-entry-tool-settings" element={user?.role === UserRole.ADMIN ? <DataEntryToolSettings /> : <Navigate to="/" />} />
+            <Route path="/software-errors" element={user?.role === UserRole.ADMIN ? <SoftwareErrors /> : <Navigate to="/" />} />
+            <Route path="/data-change-tracking" element={user?.role === UserRole.ADMIN ? <DataChangeTracking /> : <Navigate to="/" />} />
+            <Route path="/pm-scheduler" element={user ? <PMScheduler user={user} /> : <Navigate to="/login" />} />
+            <Route path="/bom" element={user ? <BillOfMaterials user={user} /> : <Navigate to="/login" />} />
+            <Route path="/permits" element={user ? <PermitToWork user={user} /> : <Navigate to="/login" />} />
+            <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
+            <Route path="/kpis" element={user ? <KPIs /> : <Navigate to="/login" />} />
+            <Route path="/training" element={user ? <Training /> : <Navigate to="/login" />} />
+            <Route path="/training-courses" element={user ? <TrainingCourses /> : <Navigate to="/login" />} />
+            <Route path="/integration" element={user ? <Integration /> : <Navigate to="/login" />} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </Suspense>
       </Layout>
     </HashRouter>
   );
-};
+}
+
+const App: React.FC = () => (
+  <AppProvider>
+    <AppBody />
+  </AppProvider>
+);
 
 export default App;

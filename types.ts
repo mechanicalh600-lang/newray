@@ -185,11 +185,89 @@ export interface Note {
   reminderSeen?: boolean; // To prevent multiple alerts
 }
 
-export interface PartRequest { id: string; [key: string]: any; }
-export interface ChecklistItem { id: string; activityCardId: string; order: number; description: string; }
-export interface InspectionResult { id: string; [key: string]: any; }
-export interface DashboardStat { name: string; value: number; color: string; }
-export interface TechnicalDocument { id: string; [key: string]: any; }
-export interface MeetingMinutes { id: string; [key: string]: any; }
-export interface TechnicalSuggestion { id: string; [key: string]: any; }
-export interface PurchaseRequest { id: string; [key: string]: any; }
+export interface PartRequest {
+  id: string;
+  tracking_code?: string;
+  requester_id?: string;
+  requester_name?: string;
+  request_date?: string;
+  description?: string;
+  work_order_code?: string;
+  status?: string;
+  items?: unknown[];
+  created_at?: string;
+}
+
+export interface ChecklistItem {
+  id: string;
+  activityCardId: string;
+  order: number;
+  description: string;
+}
+
+export interface InspectionResult {
+  id: string;
+  activity_card_id?: string;
+  equipment_id?: string;
+  result?: string;
+  notes?: string;
+  inspected_at?: string;
+  inspector_id?: string;
+  [key: string]: unknown;
+}
+
+export interface DashboardStat {
+  name: string;
+  value: number;
+  color: string;
+}
+
+export interface TechnicalDocument {
+  id: string;
+  code?: string;
+  title: string;
+  type?: string;
+  file_url?: string;
+  description?: string;
+  created_at?: string;
+}
+
+export interface MeetingMinutes {
+  id: string;
+  tracking_code?: string;
+  subject: string;
+  location?: string;
+  meeting_date?: string;
+  start_time?: string;
+  end_time?: string;
+  attendees?: unknown[];
+  status?: string;
+  created_at?: string;
+}
+
+export interface TechnicalSuggestion {
+  id: string;
+  tracking_code?: string;
+  user_id?: string;
+  user_name: string;
+  description: string;
+  status?: string;
+  attachments?: unknown[];
+  created_at?: string;
+}
+
+export interface PurchaseRequest {
+  id: string;
+  request_number?: string;
+  requester_id?: string;
+  requester_name?: string;
+  request_date?: string;
+  description?: string;
+  qty?: number;
+  unit?: string;
+  location?: string;
+  priority?: string;
+  status?: string;
+  attachments?: unknown[];
+  created_at?: string;
+}

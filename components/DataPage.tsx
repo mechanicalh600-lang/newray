@@ -1,8 +1,8 @@
-
 import React, { useState } from 'react';
 import { SmartTable } from './SmartTable';
+import { useUser } from '../contexts/UserContext';
 import { ConfirmModal } from './ConfirmModal';
-import { Plus, FileSpreadsheet, RefreshCw, Trash2, Eye, Printer, Edit } from 'lucide-react';
+import { Plus, FileSpreadsheet, RefreshCw, Trash2, Eye, Printer, Edit, UploadCloud } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface DataPageProps<T> {
@@ -26,7 +26,15 @@ interface DataPageProps<T> {
   onSelect?: (ids: string[]) => void;
   filterContent?: React.ReactNode;
   extraActions?: React.ReactNode; // For any non-standard actions
+  /** دکمه‌هایی که قبل از خط جداکننده (کنار مشاهده/ویرایش/حذف) نمایش داده می‌شوند */
+  extraActionsBeforeDivider?: React.ReactNode;
+  /** دکمه انتشار (کنار مشاهده) وقتی یک ردیف انتخاب شده باشد */
+  publishAction?: { onClick: (item: T) => void; title?: string };
   customRowActions?: (item: T) => React.ReactNode;
+  /** کلید ذخیره ستون‌های قابل مشاهده (راست‌کلیک روی هدر جدول) */
+  columnVisibilityKey?: string;
+  /** شناسه کاربر برای ذخیره ترجیحات در دیتابیس (در لاگین بعدی همین ستون‌ها نمایش داده می‌شود) */
+  userId?: string | null;
   
   children?: React.ReactNode;
   containerClassName?: string;
@@ -50,12 +58,30 @@ export function DataPage<T extends { id: string }>({
   onSelect,
   filterContent,
   extraActions, // Keep for edge cases, but standard ones are handled below
+  extraActionsBeforeDivider,
+  publishAction,
   customRowActions,
+  columnVisibilityKey = exportName,
+  userId,
   children,
   containerClassName
 }: DataPageProps<T>) {
-  
+  const contextUser = useUser();
+  const effectiveUserId = userId ?? contextUser?.id ?? null;
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // Sanitize row for XLSX (nested objects cause "Cannot convert object to primitive value")
+  const sanitizeForSheet = (obj: any): any => {
+    if (obj == null) return obj;
+    if (typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(sanitizeForSheet);
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      out[k] = v != null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)
+        ? JSON.stringify(v) : v;
+    }
+    return out;
+  };
 
   // Default Export Logic
   const handleDefaultExport = () => {
@@ -63,8 +89,8 @@ export function DataPage<T extends { id: string }>({
     const dataToExport = selectedIds.length > 0 
       ? data.filter(i => selectedIds.includes(i.id))
       : data;
-      
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const sanitized = dataToExport.map(sanitizeForSheet);
+    const ws = XLSX.utils.json_to_sheet(sanitized);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
     XLSX.writeFile(wb, `${exportName}_${Date.now()}.xlsx`);
@@ -90,6 +116,17 @@ export function DataPage<T extends { id: string }>({
           title="مشاهده"
         >
           <Eye className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* 1b. Publish (UploadCloud) - کنار مشاهده */}
+      {selectedIds.length === 1 && publishAction && selectedItem && (
+        <button 
+          onClick={() => publishAction.onClick(selectedItem)} 
+          className="p-2.5 bg-green-50 text-green-600 rounded-xl hover:bg-green-100 transition" 
+          title={publishAction.title ?? 'انتشار'}
+        >
+          <UploadCloud className="w-5 h-5" />
         </button>
       )}
 
@@ -126,10 +163,13 @@ export function DataPage<T extends { id: string }>({
         </button>
       )}
 
+      {/* اکشن‌های اضافه قبل از خط جداکننده (کنار مشاهده/ویرایش/حذف) */}
+      {extraActionsBeforeDivider}
+
       {/* Divider if actions exist above and below */}
       {(selectedIds.length > 0) && <div className="w-px h-6 bg-gray-300 mx-1"></div>}
 
-      {/* Custom Extra Actions (if any specific ones are needed) */}
+      {/* Custom Extra Actions (کنار دکمه جدید) */}
       {extraActions}
 
       {/* 5. New (Plus) */}
@@ -168,7 +208,7 @@ export function DataPage<T extends { id: string }>({
   );
 
   return (
-    <div className={containerClassName || "max-w-7xl mx-auto pb-20 space-y-6"}>
+    <div className={containerClassName || "w-full max-w-full pb-20 space-y-2"}>
       {onDelete && (
         <ConfirmModal
           isOpen={isDeleteModalOpen}
@@ -206,6 +246,8 @@ export function DataPage<T extends { id: string }>({
         onEdit={onEdit}
         onViewDetails={onViewDetails}
         customRowActions={customRowActions}
+        columnVisibilityKey={columnVisibilityKey}
+        userId={effectiveUserId}
       />
     </div>
   );

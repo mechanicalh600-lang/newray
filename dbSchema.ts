@@ -190,6 +190,7 @@ create table if not exists personal_notes (
   reminder_date text,
   reminder_time text,
   is_completed boolean default false,
+  reminder_dismissed boolean default false,
   created_at timestamptz default now()
 );
 
@@ -229,6 +230,8 @@ create table if not exists purchase_requests (
   description text,
   qty numeric,
   unit text,
+  location text,
+  priority text,
   status text default 'PENDING',
   attachments jsonb default '[]'::jsonb,
   created_at timestamptz default now()
@@ -305,6 +308,17 @@ create table if not exists scale_reports (
   created_at timestamptz default now()
 );
 
+-- جدول ماتریس مهارت پرسنل
+create table if not exists personnel_skills (
+  id uuid default gen_random_uuid() primary key,
+  personnel_id uuid references personnel(id) on delete cascade,
+  skill_name text not null,
+  level text,
+  certificate_date text,
+  expiry_date text,
+  created_at timestamptz default now()
+);
+
 -- جدول دوره‌های آموزشی
 create table if not exists training_courses (
   id uuid default gen_random_uuid() primary key,
@@ -312,6 +326,38 @@ create table if not exists training_courses (
   title text not null,
   duration_hours numeric,
   provider text,
+  created_at timestamptz default now()
+);
+
+-- جدول دوره‌های ارزیابی
+create table if not exists evaluation_periods (
+  id uuid default gen_random_uuid() primary key,
+  code text,
+  title text not null,
+  created_at timestamptz default now()
+);
+
+-- جدول شاخص‌های ارزیابی
+create table if not exists evaluation_criteria (
+  id uuid default gen_random_uuid() primary key,
+  title text not null,
+  max_score numeric not null default 10,
+  org_unit_id uuid references org_chart(id) on delete set null,
+  created_at timestamptz default now()
+);
+
+-- جدول ارزیابی عملکرد
+create table if not exists performance_evaluations (
+  id uuid default gen_random_uuid() primary key,
+  tracking_code text,
+  personnel_id uuid references personnel(id) on delete set null,
+  personnel_name text,
+  unit text,
+  period text,
+  total_score numeric,
+  max_possible_score numeric,
+  criteria_scores jsonb default '[]'::jsonb,
+  status text default 'DRAFT',
   created_at timestamptz default now()
 );
 
@@ -327,6 +373,32 @@ create table if not exists hse_reports (
   involved_persons text,
   corrective_action text,
   status text default 'OPEN',
+  created_at timestamptz default now()
+);
+
+-- جدول پیشنهادات فنی
+create table if not exists technical_suggestions (
+  id uuid default gen_random_uuid() primary key,
+  tracking_code text,
+  user_id uuid references app_users(id),
+  user_name text not null,
+  description text not null,
+  status text default 'PENDING',
+  attachments jsonb default '[]'::jsonb,
+  created_at timestamptz default now()
+);
+
+-- جدول صورتجلسات
+create table if not exists meeting_minutes (
+  id uuid default gen_random_uuid() primary key,
+  tracking_code text,
+  subject text not null,
+  location text,
+  meeting_date text,
+  start_time text,
+  end_time text,
+  attendees jsonb default '[]'::jsonb,
+  status text default 'DRAFT',
   created_at timestamptz default now()
 );
 
@@ -364,6 +436,13 @@ ALTER TABLE parts ADD COLUMN IF NOT EXISTS unit_price numeric DEFAULT 0;
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS current_stock numeric DEFAULT 0;
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 0;
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS location_in_warehouse text;
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS warehouse_row text;
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS shelf text;
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS reorder_quantity numeric DEFAULT 0;
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS stock_unit_id uuid REFERENCES measurement_units(id);
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS consumption_unit_id uuid REFERENCES measurement_units(id);
+
+CREATE INDEX IF NOT EXISTS ix_parts_name ON parts (name);
 
 ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS total_cost numeric DEFAULT 0;
 ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS work_category text;
@@ -371,6 +450,57 @@ ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS work_type text;
 ALTER TABLE work_orders ADD COLUMN IF NOT EXISTS priority text;
 
 ALTER TABLE purchase_requests ADD COLUMN IF NOT EXISTS attachments jsonb DEFAULT '[]'::jsonb;
+
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget numeric;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS objectives jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS wbs jsonb DEFAULT '[]'::jsonb;
+
+ALTER TABLE personal_notes ADD COLUMN IF NOT EXISTS reminder_dismissed boolean DEFAULT false;
+
+-- اعلان سراسری: نسخه اعلان برای نمایش مجدد به کاربرانی که قبلاً متوجه شدم زده‌اند
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS announcement_version integer DEFAULT 1;
+
+-- جدول ثبت اعلام «متوجه شدم» برای اعلان سراسری
+create table if not exists announcement_acknowledgments (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid not null references app_users(id) on delete cascade,
+  app_settings_id uuid not null references app_settings(id) on delete cascade,
+  acknowledged_version integer not null default 1,
+  acknowledged_at timestamptz default now(),
+  constraint uq_announcement_ack_user_settings unique (user_id, app_settings_id)
+);
+
+-- افزایش نسخه اعلان هنگام تغییر متن یا فعال/غیرفعال شدن
+create or replace function bump_announcement_version()
+returns trigger language plpgsql as $$
+begin
+  if (OLD.announcement_message is distinct from NEW.announcement_message)
+     or (OLD.announcement_active is distinct from NEW.announcement_active) then
+    NEW.announcement_version := coalesce(OLD.announcement_version, 0) + 1;
+  else
+    NEW.announcement_version := OLD.announcement_version;
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists tr_app_settings_announcement_version on app_settings;
+create trigger tr_app_settings_announcement_version
+  before update on app_settings
+  for each row
+  execute function bump_announcement_version();
+
+-- جدول فرمت‌های کدگذاری (پیشوند + اتصال به گزارش/منو)
+create table if not exists coding_formats (
+  id uuid default gen_random_uuid() primary key,
+  prefix_value text not null,
+  label text not null,
+  linked_to text,
+  sort_order integer default 0,
+  created_at timestamptz default now()
+);
+create index if not exists ix_coding_formats_linked_to on coding_formats (linked_to);
+create index if not exists ix_coding_formats_sort on coding_formats (sort_order);
 
 -- ==========================================
 -- 5. توابع تولید کد خودکار

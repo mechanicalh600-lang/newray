@@ -116,11 +116,11 @@ export const AdminPanel: React.FC = () => {
         className="p-2.5 bg-green-50 text-green-700 rounded-xl hover:bg-green-100 transition"
         title="ورود از اکسل"
       >
-        <Upload className="w-5 h-5" />
+        <Download className="w-5 h-5" />
       </button>
 
       <button onClick={handleDownloadSample} className="p-2.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition" title="دانلود نمونه اکسل / خروجی">
-        <Download className="w-5 h-5" />
+        <Upload className="w-5 h-5" />
       </button>
 
       <button onClick={fetchData} className="p-2.5 bg-gray-50 text-gray-600 rounded-xl hover:bg-gray-100 transition" title="بروزرسانی">
@@ -130,7 +130,7 @@ export const AdminPanel: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6 pb-20 max-w-7xl mx-auto">
+    <div className="space-y-6 pb-20 w-full max-w-full">
       <ConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
@@ -160,6 +160,8 @@ export const AdminPanel: React.FC = () => {
         onSelect={setSelectedIds}
         filterContent={filterContent}
         isLoading={loading}
+        columnVisibilityKey={activeTab}
+        defaultColumnWidths={activeTab === 'evaluation_criteria' ? { title: 320, max_score: 100, org_unit_name: 180 } : undefined}
       />
 
       {isModalOpen && (
@@ -204,14 +206,14 @@ export const AdminPanel: React.FC = () => {
                   onClick={() => fileInputRef.current?.click()}
                   className="px-4 py-2 rounded-xl bg-green-600 text-white hover:bg-green-700 text-sm font-bold inline-flex items-center gap-1"
                 >
-                  <Upload className="w-4 h-4" />
+                  <Download className="w-4 h-4" />
                   انتخاب فایل اکسل
                 </button>
                 <button
                   onClick={handleDownloadSample}
                   className="px-4 py-2 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm font-bold inline-flex items-center gap-1"
                 >
-                  <Download className="w-4 h-4" />
+                  <Upload className="w-4 h-4" />
                   دانلود نمونه (به‌همراه شیت مرجع)
                 </button>
                 {importFileName && <span className="text-xs text-gray-500">فایل: {importFileName}</span>}

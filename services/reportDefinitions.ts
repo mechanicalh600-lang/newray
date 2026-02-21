@@ -11,7 +11,8 @@ export type FieldType =
   | 'repeatable_list'
   | 'time_pair'
   | 'matrix'
-  | 'attendance';
+  | 'attendance'
+  | 'container';
 
 export interface RepeatableListConfig {
   placeholder?: string;
@@ -26,11 +27,40 @@ export interface TimePairConfig {
   requireReasonWhenStop?: boolean;
 }
 
+export type MatrixNumericOp = 'sum' | 'avg' | 'min' | 'max' | 'diff';
+
+/** پیکربندی منبع مقدار هر سلول ماتریس */
+export interface MatrixCellSource {
+  type: 'manual';
+}
+
+export interface MatrixCellQuerySource {
+  type: 'query';
+  table: string;
+  op: 'count' | 'sum';
+  column?: string; // برای sum: نام ستون عددی
+}
+
+export interface MatrixCellCustomSqlSource {
+  type: 'custom_sql';
+  sql: string; // کوئری SELECT که یک مقدار برمی‌گرداند
+}
+
+export type MatrixCellSourceConfig = MatrixCellSource | MatrixCellQuerySource | MatrixCellCustomSqlSource;
+
 export interface MatrixConfig {
   rows: string[];
   columns: string[];
   defaultValue?: string;
   enforceNumeric?: boolean;
+  /** عنوان محور ردیف (پیش‌فرض: ردیف) */
+  rowAxisLabel?: string;
+  /** عنوان محور ستون (پیش‌فرض: ستون) */
+  columnAxisLabel?: string;
+  /** عملگرهای عددی نمایش داده شده (پیش‌فرض: فقط جمع) */
+  numericOps?: MatrixNumericOp[];
+  /** منبع مقدار هر سلول: { [rowKey]: { [colKey]: MatrixCellSourceConfig } } - پیش‌فرض: manual */
+  cellSources?: Record<string, Record<string, MatrixCellSourceConfig>>;
 }
 
 export interface ReportFormGroup {
@@ -49,8 +79,11 @@ export interface ReportFieldSchema {
   tabId?: string;
   sectionId?: string;
   groupId?: string;
-  width?: 1 | 2;
+  /** عرض: 1=۱/۴، 2=۱/۲، 3=۳/۴، 4=کامل */
+  width?: 1 | 2 | 3 | 4;
   helpText?: string;
+  /** رنگ باکس یا فیلد (hex) */
+  color?: string;
   required?: boolean;
   placeholder?: string;
   defaultValue?: any;
@@ -91,6 +124,7 @@ export interface ReportTabSchema {
     | 'shield'
     | 'hardhat'
     | 'wrench'
+    | 'magnet'
     | 'alert'
     | 'layers'
     | 'chart'
@@ -105,7 +139,6 @@ export interface ReportTabSchema {
     | 'mappin'
     | 'globe'
     | 'phone'
-    | 'mail'
     | 'bell'
     | 'bookmark'
     | 'star'
@@ -174,7 +207,47 @@ export interface ReportTabSchema {
     | 'tree'
     | 'leaf'
     | 'recycle'
-    | 'snowflake';
+    | 'snowflake'
+    /* ── تجهیزات صنعتی ── */
+    | 'fan'
+    | 'drill'
+    | 'fuel'
+    | 'nut'
+    | 'bolt'
+    | 'cylinder'
+    | 'airvent'
+    | 'rotatecw'
+    | 'gears'
+    | 'forklift'
+    | 'cable'
+    | 'boxes'
+    | 'workflow'
+    | 'radius'
+    | 'pickaxe'
+    | 'newspaper'
+    | 'minimize'
+    | 'mailbox'
+    | 'layers2'
+    | 'galleryverticalend'
+    | 'alignverticaldistributestart'
+    | 'omega'
+    | 'letter'
+    /* ── فلش، تیک، زنگ، مکعب ── */
+    | 'arrowup'
+    | 'arrowdown'
+    | 'arrowleft'
+    | 'arrowright'
+    | 'arrowupright'
+    | 'arrowdownleft'
+    | 'chevronright'
+    | 'chevronleft'
+    | 'check'
+    | 'checkcircle'
+    | 'checksquare'
+    | 'checkcheck'
+    | 'belldot'
+    | 'bellring'
+    | 'box';
 }
 
 export interface ReportFormSchema {
@@ -192,6 +265,7 @@ export interface ReportListSchema {
 
 export interface ReportTemplateSchema {
   moduleId: string;
+  modulePath?: string;
 }
 
 export interface ReportDefinition {
@@ -272,7 +346,22 @@ export const getAllReportDefinitions = async (): Promise<ReportDefinition[]> => 
       .select('*')
       .order('updated_at', { ascending: false });
     if (error) throw error;
-    return (data || []) as ReportDefinition[];
+    const fromDb = (data || []) as ReportDefinition[];
+    const fallback = getFallbackDefs();
+    if (!fallback.length) return fromDb;
+    // ادغام fallback با داده‌های Supabase: وقتی ذخیره در Supabase خطا داد ولی در localStorage ذخیره شد، نمایش داده شود
+    const bySlug = new Map(fromDb.map(d => [d.slug, d]));
+    for (const fb of fallback) {
+      const existing = bySlug.get(fb.slug);
+      const fbUpdated = fb.updated_at || '';
+      const existingUpdated = existing?.updated_at || '';
+      if (!existing || fbUpdated > existingUpdated) {
+        bySlug.set(fb.slug, fb);
+      }
+    }
+    return Array.from(bySlug.values()).sort((a, b) =>
+      (b.updated_at || '').localeCompare(a.updated_at || '')
+    );
   } catch {
     return getFallbackDefs();
   }
@@ -281,6 +370,16 @@ export const getAllReportDefinitions = async (): Promise<ReportDefinition[]> => 
 export const getActiveReportDefinitions = async (): Promise<ReportDefinition[]> => {
   const defs = await getAllReportDefinitions();
   return defs.filter(d => d.is_active);
+};
+
+/** فرم فعالی که به مسیر هدف (مثلاً /shift-report) متصل شده است */
+export const getReportDefinitionByModulePath = async (modulePath: string): Promise<ReportDefinition | null> => {
+  const defs = await getActiveReportDefinitions();
+  const normalized = '/' + String(modulePath || '').replace(/^\/+/, '');
+  return defs.find(d => {
+    const p = (d.template_schema as any)?.modulePath;
+    return p && ('/' + String(p).replace(/^\/+/, '')) === normalized;
+  }) || null;
 };
 
 export const getReportDefinitionBySlug = async (slug: string): Promise<ReportDefinition | null> => {
@@ -298,43 +397,63 @@ export const getReportDefinitionBySlug = async (slug: string): Promise<ReportDef
   }
 };
 
+const isValidUuid = (v: unknown): v is string =>
+  typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
 export const upsertReportDefinitionDraft = async (
   input: Partial<ReportDefinition> & Pick<ReportDefinition, 'title' | 'slug' | 'category' | 'form_schema' | 'list_schema'>
 ) => {
   const normalizedSlug = slugify(input.slug);
   const now = new Date().toISOString();
-  const current = input.id ? await getReportDefinitionBySlug(normalizedSlug) : null;
+  const current = await getReportDefinitionBySlug(normalizedSlug);
 
-  const payload: Partial<ReportDefinition> = {
-    id: input.id,
+  const payload: Record<string, unknown> = {
     slug: normalizedSlug,
     title: input.title,
-    category: input.category,
-    is_active: input.is_active ?? true,
-    form_schema: input.form_schema,
-    list_schema: input.list_schema,
+    category: input.category || 'گزارشات',
+    is_active: input.is_active ?? false,
+    form_schema: input.form_schema ?? { tabs: [], fields: [], groups: [], sections: [] },
+    list_schema: input.list_schema ?? { columns: [] },
     template_schema: input.template_schema || { moduleId: normalizedSlug },
     data_source: { mode: 'generic', table: 'report_records' },
     version: Math.max(1, (current?.version || 0) + 1),
     published_version: current?.published_version || 0,
     updated_at: now,
   };
+  // فقط برای به‌روزرسانی؛ id معتبر (UUID) ارسال می‌شود و upsert با slug انجام می‌شود
+  if (input.id && isValidUuid(input.id)) {
+    payload.id = input.id;
+  }
 
   try {
-    const { data, error } = await supabase.from('report_definitions').upsert([payload]).select('*').single();
+    const { data, error } = await supabase
+      .from('report_definitions')
+      .upsert([payload], { onConflict: 'slug' })
+      .select('*')
+      .single();
     if (error) throw error;
+    const saved = data as ReportDefinition;
+    const modulePath = (input.template_schema as any)?.modulePath;
+    if (modulePath) {
+      const { data: others } = await supabase.from('report_definitions').select('id, is_active, template_schema').neq('id', saved.id);
+      const samePathIds = (others || []).filter((d: any) => (d.template_schema?.modulePath || '') === modulePath && d.is_active).map((d: any) => d.id);
+      for (const id of samePathIds) {
+        await supabase.from('report_definitions').update({ is_active: false }).eq('id', id);
+      }
+    }
     await insertSystemLog('ذخیره پیش نویس فرم گزارش', `slug=${normalizedSlug}`);
-    await insertAudit(current ? 'UPDATE' : 'INSERT', data.id, current || null, data);
+    await insertAudit(current ? 'UPDATE' : 'INSERT', saved.id, current || null, data);
     emitReportDefinitionsChanged();
-    return data as ReportDefinition;
-  } catch {
+    return { data: saved, usedFallback: false };
+  } catch (err) {
+    console.error('خطا در ذخیره گزارش در Supabase:', err);
     const fallback = getFallbackDefs();
     const idx = fallback.findIndex(d => d.slug === normalizedSlug);
     const next: ReportDefinition = {
       id: input.id || `local-${Date.now()}`,
       slug: normalizedSlug,
       title: input.title,
-      category: input.category,
+      category: input.category || 'گزارشات',
       is_active: input.is_active ?? true,
       form_schema: input.form_schema,
       list_schema: input.list_schema,
@@ -349,7 +468,8 @@ export const upsertReportDefinitionDraft = async (
     else fallback.unshift(next);
     setFallbackDefs(fallback);
     emitReportDefinitionsChanged();
-    return next;
+    const errMsg = err instanceof Error ? err.message : String(err);
+    return { data: next, usedFallback: true, error: errMsg };
   }
 };
 
@@ -365,7 +485,15 @@ export const publishReportDefinition = async (slug: string) => {
       moduleId: def.slug,
     },
   };
+  const modulePath = (def.template_schema as any)?.modulePath;
   try {
+    if (modulePath) {
+      const { data: others } = await supabase.from('report_definitions').select('id, is_active, template_schema').neq('id', def.id);
+      const samePathIds = (others || []).filter((d: any) => (d.template_schema?.modulePath || '') === modulePath && d.is_active).map((d: any) => d.id);
+      for (const id of samePathIds) {
+        await supabase.from('report_definitions').update({ is_active: false }).eq('id', id);
+      }
+    }
     const { data, error } = await supabase
       .from('report_definitions')
       .update({
@@ -392,6 +520,49 @@ export const publishReportDefinition = async (slug: string) => {
     }
     throw new Error('انتشار فرم در حالت fallback ناموفق بود.');
   }
+};
+
+const toSqlCol = (s: string) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+const toSqlTbl = (slug: string) => `report_${toSqlCol(slug.replace(/-/g, '_')) || 'new_form'}`;
+const mapFieldTypeToSql = (type: FieldType) => {
+  if (type === 'number') return 'numeric';
+  if (type === 'checkbox') return 'boolean default false';
+  if (type === 'matrix' || type === 'repeatable_list' || type === 'time_pair' || type === 'attendance') return "jsonb not null default '{}'::jsonb";
+  return 'text';
+};
+
+export const generateSqlForDefinition = (def: ReportDefinition): string => {
+  const slug = def.slug || '';
+  const tableName = toSqlTbl(slug);
+  const cols: string[] = [];
+  const used = new Set<string>(['id', 'tracking_code', 'report_date', 'created_at', 'updated_at']);
+  const fields = def.form_schema?.fields || [];
+  for (const f of fields) {
+    if (f.type === 'container') continue;
+    const col = toSqlCol(f.key);
+    if (!col || used.has(col)) continue;
+    used.add(col);
+    const notNull = f.required ? ' not null' : '';
+    cols.push(`  ${col} ${mapFieldTypeToSql(f.type)}${notNull}`);
+  }
+  const slugCol = toSqlCol(slug) || 'new_form';
+  return `-- SQL for: ${def.title || 'Report Form'}
+create extension if not exists pgcrypto;
+
+create table if not exists public.${tableName} (
+  id uuid primary key default gen_random_uuid(),
+  definition_slug text not null default '${slugCol}',
+  tracking_code text,
+  report_date text,
+${cols.join(',\n')}${cols.length ? ',\n' : ''}  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists ix_${tableName}_report_date on public.${tableName}(report_date);
+create index if not exists ix_${tableName}_created_at on public.${tableName}(created_at desc);
+
+alter table public.${tableName} enable row level security;`;
 };
 
 export const setDefinitionActiveState = async (id: string, isActive: boolean) => {

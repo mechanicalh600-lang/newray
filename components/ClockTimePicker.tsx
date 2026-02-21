@@ -6,9 +6,10 @@ interface Props {
   value: string;
   onChange: (time: string) => void;
   label?: string;
+  error?: string;
 }
 
-export const ClockTimePicker: React.FC<Props> = ({ value, onChange, label }) => {
+export const ClockTimePicker: React.FC<Props> = ({ value, onChange, label, error }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<'HOURS' | 'MINUTES'>('HOURS');
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -70,7 +71,7 @@ export const ClockTimePicker: React.FC<Props> = ({ value, onChange, label }) => 
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={`w-full h-11 flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-700 rounded-xl border transition-all
-        ${isOpen ? 'ring-2 ring-primary/20 border-primary shadow-sm' : 'border-gray-200 dark:border-gray-600 hover:border-primary/50'}
+        ${error ? 'border-red-500 text-red-500' : isOpen ? 'ring-2 ring-primary/20 border-primary shadow-sm' : 'border-gray-200 dark:border-gray-600 hover:border-primary/50'}
         `}
       >
          <span className={`font-mono text-lg tracking-wider ${!value ? 'text-gray-400 font-sans text-sm tracking-normal' : 'text-gray-800 dark:text-gray-100'}`}>
@@ -78,6 +79,7 @@ export const ClockTimePicker: React.FC<Props> = ({ value, onChange, label }) => 
          </span>
          <Clock className="w-5 h-5 text-gray-400" />
       </button>
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
 
       {isOpen && (
         <div className="absolute top-full left-0 z-50 mt-2 w-64 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-600 p-4 animate-fadeIn flex flex-col items-center">

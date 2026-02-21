@@ -174,6 +174,8 @@ export const ReportTemplatePreview: React.FC = () => {
           ...(fetched || {}),
           ...((inputRecord && inputRecord.full_data) || {}),
           ...((fetched && fetched.full_data) || {}),
+          /** برای گزارش‌های داینامیک (report_records) دادهٔ فرم در payload است؛ در قالب با {{field}} در دسترس باشد */
+          ...((inputRecord && inputRecord.payload) || {}),
         };
         setRecord(merged);
       } finally {
@@ -197,7 +199,7 @@ export const ReportTemplatePreview: React.FC = () => {
 
   if (!inputRecord || !moduleId) {
     return (
-      <div className="max-w-3xl mx-auto py-16 text-center">
+      <div className="w-full max-w-full py-16 text-center">
         <p className="text-gray-500 mb-4">داده‌ای برای پیش‌نمایش قالب ارسال نشده است.</p>
         <button onClick={() => navigate('/')} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">
           بازگشت
@@ -208,7 +210,7 @@ export const ReportTemplatePreview: React.FC = () => {
 
   if (!template) {
     return (
-      <div className="max-w-3xl mx-auto py-16 text-center">
+      <div className="w-full max-w-full py-16 text-center">
         <p className="text-gray-500 mb-2">برای این ماژول هنوز قالبی ذخیره نشده است.</p>
         <button onClick={() => navigate('/')} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200">
           بازگشت
@@ -218,7 +220,7 @@ export const ReportTemplatePreview: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto pb-10 space-y-4">
+    <div className="w-full max-w-full pb-10 space-y-4">
       <div className="bg-white dark:bg-gray-800 rounded-xl border p-3 flex items-center justify-between print:hidden">
         <button onClick={() => navigate('/')} className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 flex items-center gap-2">
           <ArrowRight className="w-4 h-4" />

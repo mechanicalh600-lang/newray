@@ -41,6 +41,7 @@ export const ControlRoomReport: React.FC<Props> = ({ user }) => {
   const [filterShift, setFilterShift] = useState('ALL');
 
   useEffect(() => {
+      setLoading(true);
       ensureDefaultReportTemplate('control-room', 'قالب پیش فرض گزارش اتاق کنترل');
       supabase
         .from('control_room_reports')
@@ -58,7 +59,8 @@ export const ControlRoomReport: React.FC<Props> = ({ user }) => {
           }));
           setItems(rows);
           setFilteredItems(rows);
-        });
+        })
+        .finally(() => setLoading(false));
   }, []);
 
   // Filter Logic
@@ -176,7 +178,7 @@ export const ControlRoomReport: React.FC<Props> = ({ user }) => {
 
   // FORM RENDER
   return (
-      <div className="max-w-5xl mx-auto pb-24">
+      <div className="w-full max-w-full pb-24">
           <div className="flex justify-between items-center mb-6 sticky top-0 bg-gray-50 dark:bg-gray-900 z-20 py-2">
               <div className="flex items-center gap-2">
                   <Monitor className="w-8 h-8 text-primary" />

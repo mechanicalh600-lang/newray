@@ -58,6 +58,15 @@ export const LabReport: React.FC<Props> = ({ user }) => {
     setLoading(false);
   };
 
+  const formatDateTime = (raw?: string) => {
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    const time = dt.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const date = dt.toLocaleDateString('fa-IR');
+    return `${time} | ${date}`;
+  };
+
   const handleDelete = async (ids: string[]) => {
     await supabase.from('lab_reports').delete().in('id', ids);
     setItems(prev => prev.filter(i => !ids.includes(i.id)));
@@ -117,7 +126,7 @@ export const LabReport: React.FC<Props> = ({ user }) => {
     };
 
     return (
-      <div className="max-w-3xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-xl shadow space-y-4">
+      <div className="w-full max-w-full p-6 bg-white dark:bg-gray-800 rounded-xl shadow space-y-4">
         <h2 className="text-xl font-bold mb-4">ثبت گزارش آزمایشگاه</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <ShamsiDatePicker label="تاریخ گزارش" value={formData.report_date} onChange={v => setFormData(prev => ({ ...prev, report_date: v }))} />
@@ -170,7 +179,8 @@ export const LabReport: React.FC<Props> = ({ user }) => {
         exportName="LabReports"
         columns={[
           { header: 'کد گزارش', accessor: (i: any) => <span className="font-mono font-bold">{i.tracking_code}</span>, sortKey: 'tracking_code' },
-          { header: 'تاریخ', accessor: (i: any) => i.report_date, sortKey: 'report_date' },
+          { header: 'تاریخ گزارش', accessor: (i: any) => i.report_date, sortKey: 'report_date' },
+          { header: 'تاریخ ثبت', accessor: (i: any) => formatDateTime(i.created_at), sortKey: 'created_at' },
           { header: 'کد نمونه', accessor: (i: any) => i.sample_code, sortKey: 'sample_code' },
           { header: 'Fe %', accessor: (i: any) => i.fe_percent, sortKey: 'fe_percent' },
           { header: 'FeO %', accessor: (i: any) => i.feo_percent, sortKey: 'feo_percent' },

@@ -1,45 +1,8 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/*
-  فونت‌ها از مسیر public/fonts بارگذاری می‌شوند.
-  برای resolve شدن در زمان build، مسیرها به صورت فایل‌سیستمی
-  از همین فایل (root/index.css) تعریف شده‌اند.
-*/
-
-@font-face {
-  font-family: 'Vazirmatn';
-  src: url('./public/fonts/Vazirmatn-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Vazirmatn';
-  src: url('./public/fonts/Vazirmatn-Medium.woff2') format('woff2');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Vazirmatn';
-  src: url('./public/fonts/Vazirmatn-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Vazirmatn';
-  src: url('./public/fonts/Vazirmatn-Black.woff2') format('woff2');
-  font-weight: 900;
-  font-style: normal;
-  font-display: swap;
-}
+/* فونت Vazirmatn از Google Fonts بارگذاری می‌شود (index.html) */
 
 body {
   font-family: 'Vazirmatn', 'Vazir', 'Tahoma', 'Arial', sans-serif;
@@ -54,4 +17,31 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* هدر جدول گزارش‌ها با بک‌گراند گرافیکی کهکشان + تصویر + دایره‌های ریز */
+.reports-table-header {
+  background-image: 
+    radial-gradient(circle at 10% 20%, rgba(249,115,22,0.25) 0%, transparent 1px),
+    radial-gradient(circle at 85% 15%, rgba(251,191,36,0.2) 0%, transparent 1.2px),
+    radial-gradient(circle at 30% 80%, rgba(245,158,11,0.2) 0%, transparent 0.8px),
+    radial-gradient(circle at 70% 60%, rgba(249,115,22,0.22) 0%, transparent 1.5px),
+    radial-gradient(circle at 50% 40%, rgba(251,191,36,0.18) 0%, transparent 1px),
+    linear-gradient(135deg, rgba(254,215,170,0.68) 0%, rgba(251,191,36,0.58) 25%, rgba(249,115,22,0.65) 50%, rgba(251,191,36,0.58) 75%, rgba(254,215,170,0.68) 100%),
+    url(https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1920);
+  background-size: 120px 80px, 95px 110px, 140px 70px, 88px 95px, 130px 100px, cover, cover;
+  background-position: 0 0, 23px 11px, 45px 33px, 12px 67px, 67px 22px, center, center;
+  background-blend-mode: overlay, overlay, overlay, overlay, overlay, overlay, normal;
+}
+.dark .reports-table-header {
+  background-image: 
+    radial-gradient(circle at 15% 25%, rgba(251,146,60,0.3) 0%, transparent 1.2px),
+    radial-gradient(circle at 80% 10%, rgba(245,158,11,0.25) 0%, transparent 1px),
+    radial-gradient(circle at 25% 75%, rgba(249,115,22,0.28) 0%, transparent 0.9px),
+    radial-gradient(circle at 65% 55%, rgba(251,191,36,0.22) 0%, transparent 1.3px),
+    linear-gradient(135deg, rgba(124,45,18,0.7) 0%, rgba(154,52,18,0.6) 25%, rgba(194,65,12,0.65) 50%, rgba(154,52,18,0.6) 75%, rgba(124,45,18,0.7) 100%),
+    url(https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1920);
+  background-size: 115px 85px, 100px 105px, 135px 75px, 92px 90px, cover, cover;
+  background-position: 5px 8px, 30px 15px, 50px 40px, 18px 60px, center, center;
+  background-blend-mode: overlay, overlay, overlay, overlay, overlay, normal;
 }

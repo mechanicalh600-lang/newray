@@ -66,7 +66,7 @@ export const WorkflowDesigner: React.FC = () => {
 
   if (!selectedWorkflow) {
     return (
-      <div className="max-w-6xl mx-auto space-y-6 pb-20">
+      <div className="w-full max-w-full space-y-6 pb-20">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <GitMerge className="text-primary" /> طراحی فرآیندهای کاری
@@ -104,7 +104,7 @@ export const WorkflowDesigner: React.FC = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto pb-20 h-[calc(100vh-100px)] flex flex-col">
+    <div className="w-full max-w-full pb-20 h-[calc(100vh-100px)] flex flex-col">
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm mb-6 flex justify-between items-center">
         <div className="flex items-center gap-4">

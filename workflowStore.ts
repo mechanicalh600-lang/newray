@@ -176,16 +176,46 @@ export const getMyMessages = (user: User): Message[] => { return []; };
 export const getSentMessages = (userId: string): Message[] => { return []; };
 export const markMessageAsRead = (msgId: string, userId: string) => {}; 
 
-// --- Master Data Helper ---
+const PAGE_SIZE = 1000;
+const fetchAllPages = async (table: string, columns: string = '*'): Promise<any[]> => {
+    const all: any[] = [];
+    let from = 0;
+    while (true) {
+        const { data, error } = await supabase.from(table).select(columns).range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        const chunk = data || [];
+        all.push(...chunk);
+        if (chunk.length < PAGE_SIZE) return all;
+        from += PAGE_SIZE;
+    }
+};
+
+const PERSONNEL_CACHE_TTL_MS = 2 * 60 * 1000; // 2 دقیقه
+let personnelCache: { data: any[]; ts: number } | null = null;
+
+// --- Master Data Helper --- (pagination برای رفع محدودیت 1000 ردیف Supabase)
 export const fetchMasterData = async (table: string) => {
+    if (table === 'personnel') {
+        const now = Date.now();
+        if (personnelCache && now - personnelCache.ts < PERSONNEL_CACHE_TTL_MS) {
+            return personnelCache.data;
+        }
+        try {
+            const data = await fetchAllPages(table, 'id, full_name, personnel_code');
+            personnelCache = { data: data || [], ts: now };
+            return personnelCache.data;
+        } catch (e) {
+            if (personnelCache) return personnelCache.data;
+            return [];
+        }
+    }
+
     try {
-        const { data, error } = await supabase.from(table).select('*');
-        if (!error && data) {
-            if (table === 'measurement_units' && data.length === 0) {
-                 // Fall through to defaults
-            } else {
-                 return data;
-            }
+        const data = await fetchAllPages(table);
+        if (table === 'measurement_units' && data.length === 0) {
+            // Fall through to defaults
+        } else {
+            return data;
         }
     } catch (e) {
         // Silent fallback
@@ -201,12 +231,45 @@ export const fetchMasterData = async (table: string) => {
     return [];
 };
 
+/** مقدار کوئری برای سلول ماتریس (تعداد رکوردها یا جمع ستون) */
+export const fetchMatrixCellQuery = async (table: string, op: 'count' | 'sum', column?: string): Promise<number> => {
+    try {
+        if (op === 'count') {
+            const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true });
+            if (error) throw error;
+            return count ?? 0;
+        }
+        if (op === 'sum' && column) {
+            const { data, error } = await supabase.from(table).select(column).limit(10000);
+            if (error) throw error;
+            const rows = Array.isArray(data) ? data : [];
+            return rows.reduce((acc, r) => acc + (Number(r?.[column]) || 0), 0);
+        }
+    } catch (e) {
+        console.warn('fetchMatrixCellQuery failed:', table, op, e);
+    }
+    return 0;
+};
+
+/** اجرای کوئری سفارشی برای سلول ماتریس (فقط SELECT، یک مقدار) */
+export const fetchMatrixCellCustomSql = async (sql: string): Promise<string> => {
+    try {
+        if (!sql || !String(sql).trim()) return '';
+        const { data, error } = await supabase.rpc('get_report_matrix_cell_value', { query_sql: String(sql).trim() });
+        if (error) throw error;
+        return data != null ? String(data) : '';
+    } catch (e) {
+        console.warn('fetchMatrixCellCustomSql failed:', e);
+        return '';
+    }
+};
+
 // --- Shift Reports Helpers (Direct DB Access) ---
 export const fetchShiftReports = async () => {
     try {
         const { data, error } = await supabase
             .from('shift_reports')
-            .select('id, tracking_code, shift_date, shift_name, shift_type, supervisor_name, total_production_a, total_production_b, full_data')
+            .select('id, tracking_code, shift_date, shift_name, shift_type, supervisor_name, total_production_a, total_production_b, full_data, created_at')
             .order('created_at', { ascending: false });
         if (error) throw error;
         return data || [];

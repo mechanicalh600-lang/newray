@@ -92,7 +92,7 @@ export const KPIs: React.FC = () => {
   );
 
   return (
-    <div className="max-w-7xl mx-auto pb-20 space-y-6">
+    <div className="w-full max-w-full pb-20 space-y-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
             <Activity className="text-primary"/> شاخص‌های کلیدی عملکرد (KPIs)
         </h1>

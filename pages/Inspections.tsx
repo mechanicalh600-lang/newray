@@ -70,7 +70,7 @@ export const Inspections: React.FC<Props> = ({ user }) => {
       const nokItems = checklist.filter(i => i.status === 'NOK');
       
       return (
-          <div className="max-w-md mx-auto space-y-6 pt-4">
+          <div className="w-full max-w-full space-y-6 pt-4">
               <div className="text-center space-y-2">
                   <div className="text-4xl animate-bounce">🙏</div>
                   <h2 className="text-xl font-bold text-green-600">{user.fullName} خسته نباشید</h2>
@@ -115,7 +115,7 @@ export const Inspections: React.FC<Props> = ({ user }) => {
   }
 
   return (
-    <div className="max-w-2xl mx-auto pb-24">
+    <div className="w-full max-w-full pb-24">
       <div className="sticky top-0 bg-gray-50 dark:bg-gray-900 z-10 py-4 shadow-sm">
           <div className="flex justify-between items-center mb-2">
               <h2 className="font-bold text-lg">بازرسی پمپ سانتریفیوژ PM-101</h2>

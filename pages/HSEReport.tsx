@@ -57,6 +57,15 @@ export const HSEReport: React.FC = () => {
     setFilteredItems(res);
   }, [items, filterType, fromDate, toDate]);
 
+  const formatDateTime = (raw?: string) => {
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    const time = dt.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const date = dt.toLocaleDateString('fa-IR');
+    return `${time} | ${date}`;
+  };
+
   const handleDelete = async (ids: string[]) => {
     setItems(prev => prev.filter(i => !ids.includes(i.id)));
     setSelectedIds([]);
@@ -103,7 +112,7 @@ export const HSEReport: React.FC = () => {
     };
 
     return (
-      <div className="max-w-3xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-xl shadow space-y-4">
+      <div className="w-full max-w-full p-6 bg-white dark:bg-gray-800 rounded-xl shadow space-y-4">
         <h2 className="text-xl font-bold mb-4">ثبت گزارش ایمنی و بهداشت</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
@@ -146,7 +155,8 @@ export const HSEReport: React.FC = () => {
         exportName="HSEReports"
         columns={[
           { header: 'کد گزارش', accessor: (i: any) => <span className="font-mono font-bold">{i.tracking_code}</span>, sortKey: 'tracking_code' },
-          { header: 'تاریخ', accessor: (i: any) => i.date, sortKey: 'date' },
+          { header: 'تاریخ رویداد', accessor: (i: any) => i.date, sortKey: 'date' },
+          { header: 'تاریخ ثبت', accessor: (i: any) => formatDateTime(i.created_at), sortKey: 'created_at' },
           { header: 'نوع', accessor: (i: any) => i.type, sortKey: 'type' },
           { header: 'شرح', accessor: (i: any) => i.description, sortKey: 'description' },
         ]}

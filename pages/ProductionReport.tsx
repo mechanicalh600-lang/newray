@@ -59,6 +59,7 @@ export const ProductionReport: React.FC<Props> = ({ user }) => {
             id: row.id,
             code: row.tracking_code,
             date: row.report_date,
+            created_at: row.created_at,
             totalProd: Number(row.total_production || 0),
             status: row.status || 'تکمیل شده',
             raw: row,
@@ -78,9 +79,19 @@ export const ProductionReport: React.FC<Props> = ({ user }) => {
       alert('حذف شد (شبیه‌سازی)');
   };
 
+  const formatDateTime = (raw?: string) => {
+    if (!raw) return '-';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    const time = dt.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const date = dt.toLocaleDateString('fa-IR');
+    return `${time} | ${date}`;
+  };
+
   const columns = [
       { header: 'کد گزارش', accessor: (i: any) => <span className="font-mono font-bold">{i.code}</span>, sortKey: 'code' },
-      { header: 'تاریخ', accessor: (i: any) => i.date, sortKey: 'date' },
+      { header: 'تاریخ گزارش', accessor: (i: any) => i.date, sortKey: 'date' },
+      { header: 'تاریخ ثبت', accessor: (i: any) => formatDateTime(i.created_at), sortKey: 'created_at' },
       { header: 'تولید کل (تن)', accessor: (i: any) => i.totalProd.toLocaleString(), sortKey: 'totalProd' },
       { header: 'وضعیت', accessor: (i: any) => i.status, sortKey: 'status' },
   ];
@@ -128,7 +139,7 @@ export const ProductionReport: React.FC<Props> = ({ user }) => {
 
   // FORM VIEW
   return (
-      <div className="max-w-6xl mx-auto pb-24">
+      <div className="w-full max-w-full pb-24">
           <div className="flex justify-between items-center mb-6 sticky top-0 bg-gray-50 dark:bg-gray-900 z-20 py-2">
             <div className="flex items-center gap-2">
                 <Factory className="w-8 h-8 text-primary" />

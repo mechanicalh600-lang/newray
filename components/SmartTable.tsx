@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Filter, Plus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Eye, Edit, Trash2, X, MoreVertical, FilterX } from 'lucide-react';
+import { Search, Filter, Plus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Eye, Edit, Trash2, X, MoreVertical, FilterX, FileText, Columns3, CheckCircle, Circle } from 'lucide-react';
+import { fetchUserColumnPreferences, saveUserColumnPreferences } from '../services/userColumnPreferences';
 
 interface Column<T> {
   header: string;
@@ -24,7 +25,13 @@ interface SmartTableProps<T> {
   onDelete?: (item: T) => void | Promise<void>;
   onViewDetails?: (item: T) => void | Promise<void>;
   customRowActions?: (item: T) => React.ReactNode;
-  filterContent?: React.ReactNode; 
+  filterContent?: React.ReactNode;
+  /** کلید ذخیره ستون‌های قابل مشاهده (مثلاً نام صفحه) */
+  columnVisibilityKey?: string;
+  /** شناسه کاربر برای ذخیره در دیتابیس (اگر موجود باشد، ترجیحات در DB ذخیره می‌شود) */
+  userId?: string | null;
+  /** عرض پیش‌فرض ستون‌ها (key = sortKey) وقتی مقدار ذخیره‌شده وجود نداشته باشد */
+  defaultColumnWidths?: Record<string, number>;
 }
 
 export function SmartTable<T extends { id: string }>({ 
@@ -42,7 +49,10 @@ export function SmartTable<T extends { id: string }>({
   onDelete,
   onViewDetails,
   customRowActions,
-  filterContent
+  filterContent,
+  columnVisibilityKey,
+  userId,
+  defaultColumnWidths = {}
 }: SmartTableProps<T>) {
   
   const [filteredData, setFilteredData] = useState<T[]>(data);
@@ -56,6 +66,126 @@ export function SmartTable<T extends { id: string }>({
   const [colCheckboxFilters, setColCheckboxFilters] = useState<Record<string, string[]>>({});
   const [activeMenuColumn, setActiveMenuColumn] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Column Visibility - راست‌کلیک روی هدر برای انتخاب ستون‌های قابل نمایش
+  const getColKey = (col: Column<T>, idx: number) => col.sortKey as string || col.header || `col_${idx}`;
+  const allColumnKeys = useMemo(() => new Set(columns.map((c, i) => getColKey(c, i))), [columns]);
+
+  const loadFromLocalStorage = (): Set<string> => {
+    const allKeys = new Set(allColumnKeys);
+    if (!columnVisibilityKey || typeof localStorage === 'undefined') return allKeys;
+    try {
+      const saved = localStorage.getItem(`columnVisibility_${columnVisibilityKey}`);
+      if (saved) {
+        const arr = JSON.parse(saved) as string[];
+        const savedSet = new Set(arr.filter(k => allKeys.has(k)));
+        allKeys.forEach(k => { if (!arr.includes(k)) savedSet.add(k); });
+        return savedSet;
+      }
+    } catch { /* ignore */ }
+    return allKeys;
+  };
+
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(loadFromLocalStorage);
+  const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const [columnMenuPos, setColumnMenuPos] = useState({ x: 0, y: 0 });
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+
+  const DEFAULT_COL_WIDTH = 150;
+  const MIN_COL_WIDTH = 80;
+  const MAX_COL_WIDTH = 400;
+  const loadColumnWidths = (): Record<string, number> => {
+    const merged = { ...defaultColumnWidths };
+    if (!columnVisibilityKey || typeof localStorage === 'undefined') return merged;
+    try {
+      const saved = localStorage.getItem(`columnWidths_${columnVisibilityKey}`);
+      if (saved) Object.assign(merged, JSON.parse(saved));
+    } catch { /* ignore */ }
+    return merged;
+  };
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(loadColumnWidths);
+  const [resizeState, setResizeState] = useState<{ key: string; colIndex: number; startX: number; startW: number } | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  const columnWidthsRef = useRef(columnWidths);
+  columnWidthsRef.current = columnWidths;
+  useEffect(() => {
+    if (!resizeState) return;
+    const cols = tableRef.current?.querySelectorAll('colgroup col');
+    const colEl = cols && cols[resizeState.colIndex] ? cols[resizeState.colIndex] : null;
+
+    const onMove = (e: MouseEvent) => {
+      const delta = resizeState.startX - e.clientX;
+      const newW = Math.max(MIN_COL_WIDTH, Math.min(MAX_COL_WIDTH, resizeState.startW + delta));
+      if (colEl instanceof HTMLTableColElement) colEl.style.width = `${newW}px`;
+      columnWidthsRef.current = { ...columnWidthsRef.current, [resizeState.key]: newW };
+    };
+    const onUp = () => {
+      const finalW = columnWidthsRef.current[resizeState.key] ?? resizeState.startW;
+      setColumnWidths(prev => ({ ...prev, [resizeState.key]: finalW }));
+      setResizeState(null);
+      if (columnVisibilityKey && typeof localStorage !== 'undefined') {
+        try {
+          const merged = { ...loadColumnWidths(), ...columnWidthsRef.current };
+          localStorage.setItem(`columnWidths_${columnVisibilityKey}`, JSON.stringify(merged));
+        } catch { /* ignore */ }
+      }
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, [resizeState, columnVisibilityKey]);
+
+  const getColWidth = (col: Column<T>, idx: number) => {
+    const key = getColKey(col, idx);
+    return columnWidths[key] ?? defaultColumnWidths[key] ?? DEFAULT_COL_WIDTH;
+  };
+
+  // بارگذاری از دیتابیس وقتی userId موجود است
+  useEffect(() => {
+    if (!userId || !columnVisibilityKey) {
+      setVisibleColumnKeys(loadFromLocalStorage);
+      return;
+    }
+    let cancelled = false;
+    fetchUserColumnPreferences(userId, columnVisibilityKey).then(arr => {
+      if (cancelled) return;
+      const allKeys = new Set(columns.map((c, i) => getColKey(c, i)));
+      const savedSet = new Set(arr.filter(k => allKeys.has(k)));
+      allKeys.forEach(k => { if (!arr.includes(k)) savedSet.add(k); });
+      setVisibleColumnKeys(savedSet);
+    }).catch(() => { if (!cancelled) setVisibleColumnKeys(loadFromLocalStorage); });
+    return () => { cancelled = true; };
+  }, [userId, columnVisibilityKey, columns.length]);
+
+  const persistVisibility = (keys: string[]) => {
+    if (userId && columnVisibilityKey) {
+      saveUserColumnPreferences(userId, columnVisibilityKey, keys).catch(() => {});
+    }
+    if (columnVisibilityKey && typeof localStorage !== 'undefined') {
+      try { localStorage.setItem(`columnVisibility_${columnVisibilityKey}`, JSON.stringify(keys)); } catch { /* ignore */ }
+    }
+  };
+
+  const toggleColumnVisibility = (key: string) => {
+    setVisibleColumnKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        if (next.size <= 1) return prev;
+        next.delete(key);
+      } else next.add(key);
+      persistVisibility([...next]);
+      return next;
+    });
+  };
+
+  const selectAllColumns = () => {
+    const all = [...allColumnKeys];
+    setVisibleColumnKeys(new Set(all));
+    persistVisibility(all);
+  };
+
+  const displayColumns = useMemo(() => columns.filter((col, idx) => visibleColumnKeys.has(getColKey(col, idx))), [columns, visibleColumnKeys]);
 
   // Internal selection state
   const [internalSelectedIds, setInternalSelectedIds] = useState<string[]>([]);
@@ -74,21 +204,54 @@ export function SmartTable<T extends { id: string }>({
       return path.split('.').reduce((o, i) => (o ? o[i] : null), obj);
   };
 
+  // Safe string conversion to avoid "Cannot convert object to primitive value"
+  const toSafeString = (val: any): string => {
+      try {
+          if (val == null) return '';
+          if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') return String(val);
+          if (typeof val === 'object') return ''; // Skip objects for primitive contexts
+          return String(val);
+      } catch (e) {
+          // #region agent log
+          try { fetch('http://127.0.0.1:7242/ingest/097c7630-12f5-40fb-a619-4417ec1884fe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'SmartTable.toSafeString', message: 'toSafeString threw', data: { err: String(e) }, timestamp: Date.now(), hypothesisId: 'H6-smarttable' }) }).catch(() => {}); } catch (_) {}
+          // #endregion
+          return '';
+      }
+  };
+
   // Helper for deep recursive search
-  const getDeepValues = (obj: any): string => {
-      if (obj === null || obj === undefined) return '';
-      if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
-      if (Array.isArray(obj)) return obj.map(getDeepValues).join(' ');
-      if (typeof obj === 'object') return Object.values(obj).map(getDeepValues).join(' ');
-      return '';
+  const getDeepValues = (obj: any, _seen?: WeakSet<object>): string => {
+      try {
+          if (obj === null || obj === undefined) return '';
+          if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
+          if (Array.isArray(obj)) return obj.map(v => getDeepValues(v, _seen)).join(' ');
+          if (typeof obj === 'object') {
+              const seen = _seen || new WeakSet();
+              if (seen.has(obj)) return '';
+              seen.add(obj);
+              try {
+                  return Object.values(obj).map(v => getDeepValues(v, seen)).join(' ');
+              } catch (e) {
+                  // #region agent log
+                  try { fetch('http://127.0.0.1:7242/ingest/097c7630-12f5-40fb-a619-4417ec1884fe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'SmartTable.getDeepValues', message: 'getDeepValues threw', data: { err: String(e) }, timestamp: Date.now(), hypothesisId: 'H6-smarttable' }) }).catch(() => {}); } catch (_) {}
+                  // #endregion
+                  return '';
+              }
+          }
+          return '';
+      } catch (e) {
+          // #region agent log
+          try { fetch('http://127.0.0.1:7242/ingest/097c7630-12f5-40fb-a619-4417ec1884fe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'SmartTable.getDeepValues.outer', message: 'getDeepValues outer threw', data: { err: String(e) }, timestamp: Date.now(), hypothesisId: 'H6-smarttable' }) }).catch(() => {}); } catch (_) {}
+          // #endregion
+          return '';
+      }
   };
 
   // Close menu when clicking outside
   useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
-          if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-              setActiveMenuColumn(null);
-          }
+          if (menuRef.current && !menuRef.current.contains(event.target as Node)) setActiveMenuColumn(null);
+          if (columnMenuRef.current && !columnMenuRef.current.contains(event.target as Node)) setColumnMenuOpen(false);
       };
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -100,7 +263,7 @@ export function SmartTable<T extends { id: string }>({
       columns.forEach(col => {
           if (col.sortKey) {
               const key = col.sortKey as string;
-              const unique = new Set(data.map(item => String(getValue(item, key) || '')));
+              const unique = new Set(data.map(item => toSafeString(getValue(item, key))));
               values[key] = Array.from(unique).filter(Boolean).sort();
           }
       });
@@ -115,7 +278,6 @@ export function SmartTable<T extends { id: string }>({
     if (globalSearch) {
       const lowerTerm = globalSearch.toLowerCase();
       res = res.filter(item => {
-        // Concatenate all values recursively to search everywhere
         const allValues = getDeepValues(item).toLowerCase();
         return allValues.includes(lowerTerm);
       });
@@ -125,14 +287,14 @@ export function SmartTable<T extends { id: string }>({
     Object.keys(colSearch).forEach(key => {
         if (colSearch[key]) {
             const term = colSearch[key].toLowerCase();
-            res = res.filter(item => String(getValue(item, key) || '').toLowerCase().includes(term));
+            res = res.filter(item => toSafeString(getValue(item, key)).toLowerCase().includes(term));
         }
     });
 
     // 3. Column Checkbox Filter
     Object.keys(colCheckboxFilters).forEach(key => {
         if (colCheckboxFilters[key] && colCheckboxFilters[key].length > 0) {
-            res = res.filter(item => colCheckboxFilters[key].includes(String(getValue(item, key) || '')));
+            res = res.filter(item => colCheckboxFilters[key].includes(toSafeString(getValue(item, key))));
         }
     });
 
@@ -146,17 +308,19 @@ export function SmartTable<T extends { id: string }>({
         if (aVal === null || aVal === undefined) return 1;
         if (bVal === null || bVal === undefined) return -1;
 
-        if (!isNaN(Number(aVal)) && !isNaN(Number(bVal)) && typeof aVal !== 'boolean') {
-             return sortConfig.direction === 'asc' ? Number(aVal) - Number(bVal) : Number(bVal) - Number(aVal);
+        const aNum = Number(aVal);
+        const bNum = Number(bVal);
+        if (!isNaN(aNum) && !isNaN(bNum) && typeof aVal !== 'boolean' && typeof bVal !== 'boolean') {
+             return sortConfig.direction === 'asc' ? aNum - bNum : bNum - aNum;
         }
 
-        const comparison = String(aVal).localeCompare(String(bVal));
+        const comparison = toSafeString(aVal).localeCompare(toSafeString(bVal));
         return sortConfig.direction === 'asc' ? comparison : -comparison;
       });
     }
 
     setFilteredData(res);
-    if (currentPage !== 1) setCurrentPage(1); 
+    if (currentPage !== 1) setCurrentPage(1);
   }, [data, globalSearch, colSearch, colCheckboxFilters, sortConfig]);
 
   // Handlers
@@ -227,11 +391,17 @@ export function SmartTable<T extends { id: string }>({
     }
   };
 
-  const colSpan = columns.length + 1; // +1 for Checkbox column
+  const colSpan = displayColumns.length + 1 + (customRowActions ? 1 : 0); // +1 Checkbox, +1 Actions
+
+  const handleHeaderContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setColumnMenuPos({ x: e.clientX, y: e.clientY });
+    setColumnMenuOpen(true);
+  };
   const hasActiveFilters = globalSearch || Object.keys(colSearch).some(k => colSearch[k]) || Object.keys(colCheckboxFilters).some(k => colCheckboxFilters[k]?.length > 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-2">
        {/* Header */}
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="flex items-center gap-2">
@@ -263,6 +433,17 @@ export function SmartTable<T extends { id: string }>({
             
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
                {extraActions}
+
+              {/* Filter - بلافاصله بعد از بروزرسانی (مطابق سایر صفحات) */}
+              {filterContent && (
+                  <button 
+                    onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+                    className={`p-2 rounded-lg border transition ${isFilterPanelOpen ? 'bg-primary/10 border-primary text-primary' : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500'}`} 
+                    title="فیلترهای پیشرفته"
+                  >
+                     <Filter className="w-5 h-5" />
+                  </button>
+              )}
                
                {onAdd && (
                   <button 
@@ -284,16 +465,13 @@ export function SmartTable<T extends { id: string }>({
                       <FilterX className="w-5 h-5" />
                   </button>
               )}
-
-              {filterContent && (
-                  <button 
-                    onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
-                    className={`p-2 rounded-lg border transition ${isFilterPanelOpen ? 'bg-primary/10 border-primary text-primary' : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500'}`} 
-                    title="فیلترهای پیشرفته"
-                  >
-                     <Filter className="w-5 h-5" />
-                  </button>
-              )}
+              <button
+                onClick={(e) => { setColumnMenuPos({ x: e.clientX, y: e.clientY }); setColumnMenuOpen(true); }}
+                className="p-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600 transition"
+                title="ستون‌های قابل نمایش"
+              >
+                <Columns3 className="w-5 h-5" />
+              </button>
             </div>
         </div>
         
@@ -305,38 +483,83 @@ export function SmartTable<T extends { id: string }>({
         )}
       </div>
 
+      {/* Column Visibility Menu - راست‌کلیک روی هدر */}
+      {columnMenuOpen && (
+        <div
+          ref={columnMenuRef}
+          className="fixed z-[100] bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-600 py-2 min-w-[200px] animate-fadeIn"
+          style={{ left: columnMenuPos.x, top: columnMenuPos.y }}
+        >
+          <div className="flex items-center justify-between px-3 py-2 border-b dark:border-gray-700">
+            <span className="text-xs font-bold text-gray-600 dark:text-gray-400 flex items-center gap-2">
+              <Columns3 className="w-4 h-4" />
+              ستون‌های قابل نمایش
+            </span>
+            <button
+              type="button"
+              onClick={selectAllColumns}
+              className="text-[10px] text-blue-500 hover:underline"
+            >
+              همه
+            </button>
+          </div>
+          <div className="max-h-64 overflow-y-auto py-2 custom-scrollbar">
+            {columns.map((col, idx) => {
+              const key = getColKey(col, idx);
+              const isVisible = visibleColumnKeys.has(key);
+              return (
+                <label
+                  key={key}
+                  className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={isVisible}
+                    onChange={() => toggleColumnVisibility(key)}
+                    className="rounded text-primary focus:ring-primary w-4 h-4"
+                  />
+                  <span>{col.header}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden border border-gray-100 dark:border-gray-700 relative">
-          <div className="overflow-x-auto min-h-[300px]">
-              <table className="w-full text-right text-sm">
-                  <thead className="bg-gray-50 dark:bg-gray-700/50 text-gray-500 font-medium border-b dark:border-gray-600">
+          <div className={`overflow-x-auto min-h-[520px] ${resizeState ? 'select-none' : ''}`} style={resizeState ? { cursor: 'col-resize' } : undefined}>
+              <table ref={tableRef} className="w-full text-right text-sm" style={{ tableLayout: 'fixed' }}>
+                  <colgroup>
+                      <col style={{ width: 40 }} />
+                      {displayColumns.map((col, idx) => (
+                          <col key={idx} style={{ width: getColWidth(col, idx) }} />
+                      ))}
+                  </colgroup>
+                  <thead className="reports-table-header text-gray-800 dark:text-gray-200 font-medium border-b-2 border-orange-300/60 dark:border-orange-600/50 shadow-sm" onContextMenu={handleHeaderContextMenu}>
                       {/* Header Row 1: Titles & Controls */}
-                      <tr>
-                          <th className="p-3 w-10 border-l border-gray-200 dark:border-gray-700/50">
+                      <tr className="cursor-context-menu" title="راست‌کلیک برای انتخاب ستون‌های قابل نمایش">
+                          <th className="px-3 pt-3 pb-0.5 w-10 border-l border-gray-200 dark:border-gray-700/50 text-center">
                               <button
                                 type="button"
                                 onClick={handleSelectAll}
-                                className="inline-flex items-center justify-center focus:outline-none rounded-full"
+                                className={`inline-flex items-center justify-center focus:outline-none rounded-full translate-y-5 p-1 ${filteredData.length > 0 && selectedIds.length === filteredData.length ? 'text-green-600 bg-green-50 dark:bg-green-900/20' : 'text-gray-400 hover:text-green-600'}`}
                                 aria-pressed={filteredData.length > 0 && selectedIds.length === filteredData.length}
                                 title={filteredData.length > 0 && selectedIds.length === filteredData.length ? 'لغو انتخاب همه' : 'انتخاب همه'}
                               >
                                 {filteredData.length > 0 && selectedIds.length === filteredData.length ? (
-                                  <span className="inline-flex items-center justify-center w-5 h-5">
-                                    <svg className="w-5 h-5 text-blue-500 overflow-visible translate-x-px -translate-y-px" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                                      <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.6" />
-                                      <path d="M12.5 4L14.9 6.2" stroke="white" strokeWidth="2.4" strokeLinecap="round" />
-                                      <path d="M4.8 9.5L7.6 12.2L17 3.2" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  </span>
+                                  <CheckCircle className="w-5 h-5" />
                                 ) : (
-                                  <span className="w-5 h-5 rounded border border-gray-300 bg-white dark:bg-gray-800" />
+                                  <Circle className="w-5 h-5" />
                                 )}
                               </button>
                           </th>
-                          {columns.map((col, idx) => {
+                          {displayColumns.map((col, idx) => {
                               const isFilterActive = col.sortKey && colCheckboxFilters[col.sortKey as string]?.length > 0;
+                              const colKey = getColKey(col, idx);
+                              const w = getColWidth(col, idx);
                               return (
-                                <th key={idx} className="p-3 whitespace-nowrap min-w-[150px] border-l border-gray-200 dark:border-gray-700/50 last:border-l-0">
+                                <th key={idx} className="px-3 pt-3 pb-0.5 whitespace-nowrap border-l border-gray-200 dark:border-gray-700/50 last:border-l-0 relative group" style={{ width: w, minWidth: MIN_COL_WIDTH, maxWidth: MAX_COL_WIDTH }}>
                                     <div className="flex items-center justify-between gap-2">
                                         <div 
                                             className={`flex items-center gap-1 cursor-pointer select-none ${col.sortKey ? 'hover:text-primary' : ''}`}
@@ -376,15 +599,15 @@ export function SmartTable<T extends { id: string }>({
                                                             </button>
                                                         </div>
                                                         <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
-                                                            {uniqueColumnValues[col.sortKey as string]?.map((val) => (
-                                                                <label key={val} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer text-xs">
+                                                            {uniqueColumnValues[col.sortKey as string]?.map((val, vi) => (
+                                                                <label key={`${col.sortKey}-${vi}-${toSafeString(val)}`} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer text-xs">
                                                                     <input 
                                                                         type="checkbox" 
-                                                                        checked={colCheckboxFilters[col.sortKey as string]?.includes(val) || false}
-                                                                        onChange={() => toggleCheckboxFilter(col.sortKey as string, val)}
+                                                                        checked={colCheckboxFilters[col.sortKey as string]?.includes(toSafeString(val)) || false}
+                                                                        onChange={() => toggleCheckboxFilter(col.sortKey as string, toSafeString(val))}
                                                                         className="rounded text-primary focus:ring-primary w-3.5 h-3.5"
                                                                     />
-                                                                    <span className="truncate" title={val}>{val}</span>
+                                                                    <span className="truncate" title={toSafeString(val)}>{toSafeString(val)}</span>
                                                                 </label>
                                                             ))}
                                                             {(!uniqueColumnValues[col.sortKey as string] || uniqueColumnValues[col.sortKey as string].length === 0) && (
@@ -396,15 +619,24 @@ export function SmartTable<T extends { id: string }>({
                                             </div>
                                         )}
                                     </div>
-                                </th>
-                              );
-                          })}
-                      </tr>
+                                    <div
+                                        className="absolute top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-10"
+                                        style={document.documentElement.dir === 'rtl' ? { left: 0, right: 'auto' } : { right: 0, left: 'auto' }}
+                                        title="کشیدن برای تغییر عرض ستون"
+                                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setResizeState({ key: colKey, colIndex: idx + 1, startX: e.clientX, startW: w }); }}
+                                    />
+                                        </th>
+                                          );
+                                      })}
+                                      {customRowActions && (
+                                        <th className="px-3 pt-3 pb-0.5 w-24 text-center border-l border-gray-200 dark:border-gray-700/50">اکشن</th>
+                                      )}
+                                      </tr>
                       {/* Header Row 2: Column Search Inputs */}
                       <tr className="bg-gray-50/50 dark:bg-gray-800/50">
-                          <th className="p-2 border-l border-gray-200 dark:border-gray-700/50"></th>
-                          {columns.map((col, idx) => (
-                              <th key={`search-${idx}`} className="p-2 border-l border-gray-200 dark:border-gray-700/50 last:border-l-0">
+                          <th className="pt-0.5 pb-2 px-2 border-l border-gray-200 dark:border-gray-700/50 text-center"></th>
+                          {displayColumns.map((col, idx) => (
+                              <th key={`search-${idx}`} className="pt-0.5 pb-2 px-2 border-l border-gray-200 dark:border-gray-700/50 last:border-l-0">
                                   {col.sortKey && (
                                       <div className="relative">
                                           <input 
@@ -426,6 +658,7 @@ export function SmartTable<T extends { id: string }>({
                                   )}
                               </th>
                           ))}
+                          {customRowActions && <th className="pt-0.5 pb-2 px-2 border-l border-gray-200 dark:border-gray-700/50" />}
                       </tr>
                   </thead>
                   <tbody className="divide-y dark:divide-gray-700">
@@ -452,32 +685,36 @@ export function SmartTable<T extends { id: string }>({
                                     hover:bg-blue-50/50 dark:hover:bg-blue-900/20
                                 `}
                               >
-                                  <td className="p-4 border-l border-gray-100 dark:border-gray-700/50">
+                                  <td className="p-4 border-l border-gray-100 dark:border-gray-700/50 text-center">
                                       <button
                                         type="button"
                                         onClick={(e) => { e.stopPropagation(); handleSelectOne(item.id); }}
-                                        className="inline-flex items-center justify-center focus:outline-none rounded-full"
+                                        className={`inline-flex items-center justify-center p-1.5 rounded-full ${selectedIds.includes(item.id) ? 'text-green-600 bg-green-50 dark:bg-green-900/20' : 'text-gray-400 hover:text-green-600'}`}
                                         aria-pressed={selectedIds.includes(item.id)}
                                         title={selectedIds.includes(item.id) ? 'لغو انتخاب' : 'انتخاب'}
                                       >
                                         {selectedIds.includes(item.id) ? (
-                                          <span className="inline-flex items-center justify-center w-4 h-4">
-                                            <svg className="w-4 h-4 text-blue-500 overflow-visible translate-x-px -translate-y-px" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                                              <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.6" />
-                                              <path d="M12.5 4L14.9 6.2" stroke="white" strokeWidth="2.4" strokeLinecap="round" />
-                                              <path d="M4.8 9.5L7.6 12.2L17 3.2" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                                            </svg>
-                                          </span>
+                                          <CheckCircle className="w-5 h-5" />
                                         ) : (
-                                          <span className="w-4 h-4 rounded border border-gray-300 bg-white dark:bg-gray-800" />
+                                          <Circle className="w-5 h-5" />
                                         )}
                                       </button>
                                   </td>
-                                  {columns.map((col, cIdx) => (
-                                      <td key={cIdx} className="p-4 whitespace-nowrap border-l border-gray-100 dark:border-gray-700/50 last:border-l-0">
-                                          {col.accessor(item)}
+                                  {displayColumns.map((col, cIdx) => {
+                                      const val = col.accessor(item);
+                                      const titleStr = (val != null && typeof val !== 'object') ? String(val) : undefined;
+                                      return (
+                                      <td key={cIdx} className="p-4 border-l border-gray-100 dark:border-gray-700/50 overflow-hidden max-w-0">
+                                          <div className="truncate" title={titleStr}>
+                                              {val}
+                                          </div>
                                       </td>
-                                  ))}
+                                  );})}
+                                  {customRowActions && (
+                                    <td className="p-2 border-l border-gray-100 dark:border-gray-700/50 text-center last:border-l-0" onClick={e => e.stopPropagation()}>
+                                      {customRowActions(item)}
+                                    </td>
+                                  )}
                               </tr>
                           ))
                       ) : (
@@ -506,7 +743,7 @@ export function SmartTable<T extends { id: string }>({
                       <option value={200}>200</option>
                   </select>
                   <span>ردیف در هر صفحه</span>
-                  <span className="mr-2 px-2 border-r border-gray-300 dark:border-gray-600">
+                  <span className="mr-2 px-2 border-r border-gray-300 dark:border-gray-600 font-bold">
                       مجموع: {filteredData.length} رکورد
                   </span>
               </div>

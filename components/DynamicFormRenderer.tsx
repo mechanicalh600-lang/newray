@@ -1,21 +1,38 @@
 import React from 'react';
 import {
   Activity,
+  AirVent,
+  AlignVerticalDistributeStart,
   AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
+  ArrowDown,
+  ArrowDownLeft,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpRight,
   Award,
   Banknote,
   BarChart3,
   BatteryCharging,
   Bell,
+  BellDot,
+  BellRing,
   Bike,
   BookOpen,
   Bookmark,
+  Box,
+  Boxes,
   Building2,
+  Cable,
   Calendar,
   Camera,
   Car,
+  Check,
+  CheckCheck,
+  CheckCircle,
+  CheckSquare,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Clipboard,
   ClipboardList,
@@ -26,11 +43,14 @@ import {
   Construction,
   Cpu,
   CreditCard,
+  Cylinder,
   Database,
   DoorOpen,
   Download,
+  Drill,
   Droplets,
   Factory,
+  Fan,
   FileCheck,
   FileText,
   Filter,
@@ -38,6 +58,9 @@ import {
   Flame,
   FlaskConical,
   FolderOpen,
+  Forklift,
+  Fuel,
+  GalleryVerticalEnd,
   Gauge,
   Globe,
   GraduationCap,
@@ -50,28 +73,39 @@ import {
   Inbox,
   Key,
   Layers,
+  Layers2,
   Leaf,
   Lock,
+  Magnet,
   Mail,
+  Mailbox,
   MapPin,
   MessageSquare,
   Microscope,
+  Minimize,
   Monitor,
   Moon,
+  Newspaper,
+  Nut,
+  Bolt,
   Package,
   Phone,
+  Pickaxe,
   PieChart,
   Pipette,
   Plane,
   PlugZap,
   Printer,
   Radio,
+  Radius,
   Recycle,
   RefreshCw,
   Rocket,
+  RotateCw,
   Scale,
   Search,
   Send,
+  Settings,
   Settings2,
   ShieldAlert,
   ShieldCheck,
@@ -100,13 +134,22 @@ import {
   Warehouse,
   Wifi,
   Wind,
+  Workflow,
   Wrench,
   Zap,
 } from 'lucide-react';
+
+const OmegaIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M3 20h4.5a.5.5 0 0 0 .5-.5v-.282a.52.52 0 0 0-.247-.437 8 8 0 1 1 8.494-.001.52.52 0 0 0-.247.438v.282a.5.5 0 0 0 .5.5H21"/>
+  </svg>
+);
+
 import { ClockTimePicker } from './ClockTimePicker';
 import { ShamsiDatePicker } from './ShamsiDatePicker';
 import { ReportFieldSchema, ReportTabSchema, ReportFormGroup } from '../services/reportDefinitions';
 import { getPersianDayName } from '../utils';
+import { MatrixCellInput } from './MatrixCellInput';
 
 interface Props {
   fields: ReportFieldSchema[];
@@ -118,6 +161,12 @@ interface Props {
   personnel?: any[];
   /** تب فعال در پیش‌نمایش؛ اگر داده شود با این مقدار همگام می‌شود */
   activeTabId?: string;
+  /** هنگام تغییر تب توسط کاربر فراخوانی می‌شود */
+  onTabChange?: (tabId: string) => void;
+  /** مخفی کردن نوار تب‌ها (برای نمایش محتوای تب در باکس جدا) */
+  hideTabBar?: boolean;
+  /** کلیک روی فیلد در پیش‌نمایش (برای انتخاب فیلد در ویرایشگر طراحی فرم) */
+  onFieldClick?: (fieldId: string) => void;
 }
 
 const shouldShowField = (field: ReportFieldSchema, formValue: Record<string, any>) => {
@@ -138,6 +187,28 @@ const toNumber = (value: unknown): number => {
   return Number.isNaN(n) ? 0 : n;
 };
 
+/** مقدار عددی فیلد هدف برای برابری مجموع (فرمت زمان یا عدد) */
+const resolveTotalMustEqualValue = (formValue: Record<string, any>, key: string): number => {
+  const raw = formValue[key] ?? (key === 'shift_duration' ? formValue.shiftInfo?.shiftDuration : undefined);
+  if (raw == null || String(raw).trim() === '') return 0;
+  const str = String(raw);
+  if (str.includes(':')) return parseTimeToMinutes(str);
+  return toNumber(str);
+};
+
+type MatrixNumericOp = 'sum' | 'avg' | 'min' | 'max' | 'diff';
+const MATRIX_OP_LABELS: Record<MatrixNumericOp, string> = { sum: 'جمع', avg: 'میانگین', min: 'حداقل', max: 'حداکثر', diff: 'تفاضل' };
+const applyMatrixOp = (op: MatrixNumericOp, nums: number[]): number => {
+  const valid = nums.filter(n => !Number.isNaN(n));
+  if (valid.length === 0) return 0;
+  if (op === 'sum') return valid.reduce((a, b) => a + b, 0);
+  if (op === 'avg') return valid.reduce((a, b) => a + b, 0) / valid.length;
+  if (op === 'min') return Math.min(...valid);
+  if (op === 'max') return Math.max(...valid);
+  if (op === 'diff') return Math.max(...valid) - Math.min(...valid);
+  return 0;
+};
+
 const LEGACY_TAB_COLORS: Record<string, string> = {
   red: '#dc2626',
   blue: '#2563eb',
@@ -150,6 +221,45 @@ const LEGACY_TAB_COLORS: Record<string, string> = {
 const iconByName: Record<string, React.ComponentType<{ className?: string }>> = {
   /* original */
   clipboard: ClipboardList,
+  /* arrows */
+  arrowup: ArrowUp,
+  arrowdown: ArrowDown,
+  arrowleft: ArrowLeft,
+  arrowright: ArrowRight,
+  arrowupright: ArrowUpRight,
+  arrowdownleft: ArrowDownLeft,
+  chevronright: ChevronRight,
+  chevronleft: ChevronLeft,
+  /* check / bell / box */
+  check: Check,
+  checkcircle: CheckCircle,
+  checksquare: CheckSquare,
+  checkcheck: CheckCheck,
+  belldot: BellDot,
+  bellring: BellRing,
+  box: Box,
+  /* industrial */
+  fan: Fan,
+  drill: Drill,
+  fuel: Fuel,
+  nut: Nut,
+  bolt: Bolt,
+  cylinder: Cylinder,
+  airvent: AirVent,
+  rotatecw: RotateCw,
+  gears: Settings,
+  forklift: Forklift,
+  cable: Cable,
+  boxes: Boxes,
+  workflow: Workflow,
+  radius: Radius,
+  pickaxe: Pickaxe,
+  newspaper: Newspaper,
+  minimize: Minimize,
+  mailbox: Mailbox,
+  layers2: Layers2,
+  letter: Mail,
+  omega: OmegaIcon,
   factory: Factory,
   settings: Settings2,
   clock: Clock3,
@@ -164,6 +274,7 @@ const iconByName: Record<string, React.ComponentType<{ className?: string }>> = 
   shield: ShieldCheck,
   hardhat: HardHat,
   wrench: Wrench,
+  magnet: Magnet,
   alert: AlertTriangle,
   layers: Layers,
   chart: BarChart3,
@@ -248,6 +359,8 @@ const iconByName: Record<string, React.ComponentType<{ className?: string }>> = 
   leaf: Leaf,
   recycle: Recycle,
   snowflake: Snowflake,
+  galleryverticalend: GalleryVerticalEnd,
+  alignverticaldistributestart: AlignVerticalDistributeStart,
 };
 
 const normalizeTabColor = (raw?: string) => {
@@ -277,8 +390,13 @@ const resolveSectionTone = (name: string) => {
   return 'border-gray-200 bg-gray-50/40 text-gray-700';
 };
 
-export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups = [], value, onChange, readOnly = false, personnel = [], activeTabId: externalActiveTabId }) => {
-  const setField = (key: string, val: any) => onChange({ ...value, [key]: val });
+export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups = [], value, onChange, readOnly = false, personnel = [], activeTabId: externalActiveTabId, onTabChange, hideTabBar = false, onFieldClick }) => {
+  const setField = (key: string, valOrFn: any) => {
+    onChange((prev: Record<string, any>) => ({
+      ...prev,
+      [key]: typeof valOrFn === 'function' ? valOrFn(prev[key]) : valOrFn,
+    }));
+  };
   const effectiveTabs = tabs.length
     ? tabs
     : [{ id: '__main__', label: 'عمومی', color: 'gray', icon: 'clipboard' as const }];
@@ -308,6 +426,7 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
 
   return (
     <div className="space-y-4">
+      {!hideTabBar && (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-x-auto sticky top-0 z-10">
         <div className="flex min-w-max">
           {effectiveTabs.map(tab => {
@@ -317,7 +436,7 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
               <button
                 type="button"
                 key={tab.id}
-                onClick={() => setActiveTabId(tab.id)}
+                onClick={() => { setActiveTabId(tab.id); onTabChange?.(tab.id); }}
                 className={`flex-1 py-4 px-6 flex items-center justify-center gap-2 text-sm font-bold transition-all border-b-4 min-w-[120px]
                   ${active ? 'border-primary text-primary bg-primary/5' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-400'}`}
               >
@@ -328,8 +447,12 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
           })}
         </div>
       </div>
+      )}
 
-      {sectionOrder.map(sectionId => {
+      {hideTabBar && sectionOrder.length === 0 ? (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 min-h-[200px]" />
+      ) : (
+      sectionOrder.map(sectionId => {
         const sectionFields = scopedFields.filter(f => (f.sectionId || '__default__') === sectionId);
         const sectionTone = resolveSectionTone(sectionId === '__default__' ? 'عمومی' : sectionId);
         const hasGroups = sectionFields.some(f => f.groupId);
@@ -371,11 +494,35 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                               if (!shouldShowField(field, value)) return null;
                               const current = value[field.key] ?? field.defaultValue ?? (field.type === 'checkbox' ? false : '');
                               const commonClass = 'w-full p-2.5 border rounded-xl bg-white dark:bg-gray-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition';
+                              const fieldId = field.id || field.key;
                               return (
-                                <div key={field.id || field.key}>
+                                <div
+                                  key={fieldId}
+                                  onClick={onFieldClick ? () => onFieldClick(fieldId) : undefined}
+                                  className={onFieldClick ? 'cursor-pointer rounded-lg -m-1 p-1 hover:bg-gray-100/50 dark:hover:bg-gray-700/30 transition-colors' : undefined}
+                                >
                                   <label className="block text-xs font-bold text-gray-500 mb-1">{field.label}{field.required ? <span className="text-red-500"> *</span> : ''}</label>
                                   {field.type === 'text' || field.type === 'number' ? (
-                                    <input type={field.type} className={commonClass} value={current} onChange={e => setField(field.key, field.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} disabled={readOnly || field.readOnly} placeholder={field.placeholder} />
+                                    <input
+                                      type={field.type}
+                                      className={commonClass}
+                                      value={current}
+                                      onChange={e => {
+                                        if (field.type === 'number') {
+                                          const raw = e.target.value === '' ? '' : Number(e.target.value);
+                                          const clamped = raw === '' || Number.isNaN(raw)
+                                            ? ''
+                                            : Math.max(field.validation?.min ?? -Infinity, Math.min(field.validation?.max ?? Infinity, raw));
+                                          setField(field.key, clamped);
+                                        } else {
+                                          setField(field.key, e.target.value);
+                                        }
+                                      }}
+                                      disabled={readOnly || field.readOnly}
+                                      placeholder={field.placeholder}
+                                      min={field.type === 'number' ? field.validation?.min : undefined}
+                                      max={field.type === 'number' ? field.validation?.max : undefined}
+                                    />
                                   ) : field.type === 'select' ? (
                                     <select className={commonClass} value={current} onChange={e => setField(field.key, e.target.value)} disabled={readOnly || field.readOnly}>
                                       <option value="">انتخاب...</option>
@@ -402,13 +549,20 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                   })}
                 </div>
                 {fieldsWithoutGroup.length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-200 dark:border-gray-600">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2 border-t border-gray-200 dark:border-gray-600">
                     {fieldsWithoutGroup.map(field => {
                       if (!shouldShowField(field, value)) return null;
                       const current = value[field.key] ?? field.defaultValue ?? (field.type === 'checkbox' ? false : '');
                       const commonClass = 'w-full p-2.5 border rounded-xl bg-white dark:bg-gray-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition';
+                      const w = field.width ?? (field.type === 'textarea' ? 4 : 2);
+                      const spanCls = w === 1 ? 'md:col-span-1' : w === 2 ? 'md:col-span-2' : w === 3 ? 'md:col-span-3' : 'md:col-span-4';
+                      const fieldId = field.id || field.key;
                       return (
-                        <div key={field.id || field.key} className={field.width === 2 || field.type === 'textarea' ? 'md:col-span-2' : ''}>
+                        <div
+                          key={fieldId}
+                          className={`${spanCls} ${onFieldClick ? 'cursor-pointer rounded-lg -m-1 p-1 hover:bg-gray-100/50 dark:hover:bg-gray-700/30 transition-colors' : ''}`}
+                          onClick={onFieldClick ? () => onFieldClick(fieldId) : undefined}
+                        >
                           <label className="block text-xs font-bold text-gray-500 mb-1.5">{field.label}{field.required ? <span className="text-red-500"> *</span> : ''}</label>
                           {field.type === 'textarea' ? (
                             <textarea className={`${commonClass} min-h-[90px]`} value={current} onChange={e => setField(field.key, e.target.value)} disabled={readOnly || field.readOnly} placeholder={field.placeholder} />
@@ -424,7 +578,26 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                           ) : field.type === 'checkbox' ? (
                             <label className="inline-flex items-center gap-2 text-sm p-2 rounded-lg bg-gray-50 dark:bg-gray-700/60 border"><input type="checkbox" checked={!!current} onChange={e => setField(field.key, e.target.checked)} disabled={readOnly || field.readOnly} /><span>فعال</span></label>
                           ) : (
-                            <input type={field.type || 'text'} className={commonClass} value={current} onChange={e => setField(field.key, field.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} disabled={readOnly || field.readOnly} placeholder={field.placeholder} />
+                            <input
+                              type={field.type || 'text'}
+                              className={commonClass}
+                              value={current}
+                              onChange={e => {
+                                if (field.type === 'number') {
+                                  const raw = e.target.value === '' ? '' : Number(e.target.value);
+                                  const clamped = raw === '' || Number.isNaN(raw)
+                                    ? ''
+                                    : Math.max(field.validation?.min ?? -Infinity, Math.min(field.validation?.max ?? Infinity, raw));
+                                  setField(field.key, clamped);
+                                } else {
+                                  setField(field.key, e.target.value);
+                                }
+                              }}
+                              disabled={readOnly || field.readOnly}
+                              placeholder={field.placeholder}
+                              min={field.type === 'number' ? field.validation?.min : undefined}
+                              max={field.type === 'number' ? field.validation?.max : undefined}
+                            />
                           )}
                         </div>
                       );
@@ -445,7 +618,7 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                 : sectionFields;
               const gridCls = isBasicInfoShift
                 ? 'grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end'
-                : 'grid grid-cols-1 md:grid-cols-2 gap-4';
+                : 'grid grid-cols-1 md:grid-cols-4 gap-4';
               const commonClass = 'w-full p-2.5 border rounded-xl bg-white dark:bg-gray-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition';
               const inputClass = isBasicInfoShift ? `${commonClass} h-11` : commonClass;
               return (
@@ -454,8 +627,15 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                 if (!shouldShowField(field, value)) return null;
                 const current = value[field.key] ?? field.defaultValue ?? (field.type === 'checkbox' ? false : '');
                 const fieldClass = (field.type === 'select' || field.type === 'text') && isBasicInfoShift ? inputClass : commonClass;
+                const w = field.width ?? (field.type === 'textarea' ? 4 : 2);
+                const spanCls = isBasicInfoShift ? (field.width === 2 || field.type === 'textarea' ? 'md:col-span-2' : '') : (w === 1 ? 'md:col-span-1' : w === 2 ? 'md:col-span-2' : w === 3 ? 'md:col-span-3' : 'md:col-span-4');
+                const fieldId = field.id || field.key;
                 return (
-                  <div key={field.id || field.key} className={field.width === 2 || field.type === 'textarea' ? 'md:col-span-2' : ''}>
+                  <div
+                    key={fieldId}
+                    className={`${spanCls} ${onFieldClick ? 'cursor-pointer rounded-lg -m-1 p-1 hover:bg-gray-100/50 dark:hover:bg-gray-700/30 transition-colors' : ''}`}
+                    onClick={onFieldClick ? () => onFieldClick(fieldId) : undefined}
+                  >
                     {field.type !== 'attendance' && (
                       <label className="block text-xs font-bold text-gray-500 mb-1.5">
                         {field.label}
@@ -599,66 +779,53 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                         )}
                       </div>
                     ) : field.type === 'matrix' ? (
+                      (() => {
+                        const ops: MatrixNumericOp[] = (field.matrixConfig?.numericOps?.length ? field.matrixConfig.numericOps : (field.matrixConfig?.enforceNumeric ? ['sum'] : [])) as MatrixNumericOp[];
+                        const rows = field.matrixConfig?.rows || [];
+                        const cols = field.matrixConfig?.columns || [];
+                        return (
                       <div className="overflow-auto rounded-xl border bg-gray-50 dark:bg-gray-700/30 p-2 space-y-2">
                         <table className="w-full text-xs">
                           <thead>
                             <tr>
-                              <th className="p-2 text-right">ردیف / ستون</th>
-                              {(field.matrixConfig?.columns || []).map(col => (
-                                <th key={`${field.key}-col-${col}`} className="p-2 text-center">
-                                  {col}
-                                </th>
+                              <th className="p-2 text-right">{(field.matrixConfig?.rowAxisLabel || 'ردیف')} / {(field.matrixConfig?.columnAxisLabel || 'ستون')}</th>
+                              {cols.map(col => (
+                                <th key={`${field.key}-col-${col}`} className="p-2 text-center">{col}</th>
                               ))}
-                              {field.matrixConfig?.enforceNumeric && <th className="p-2 text-center">جمع ردیف</th>}
+                              {ops.map(op => <th key={op} className="p-2 text-center text-blue-700">{MATRIX_OP_LABELS[op]} ردیف</th>)}
                             </tr>
                           </thead>
                           <tbody>
-                            {(field.matrixConfig?.rows || []).map(row => (
+                            {rows.map(row => (
                               <tr key={`${field.key}-row-${row}`} className="border-t">
                                 <td className="p-2 font-bold">{row}</td>
-                                {(field.matrixConfig?.columns || []).map(col => (
+                                {cols.map(col => (
                                   <td key={`${field.key}-${row}-${col}`} className="p-1">
-                                    <input
-                                      type="text"
-                                      className="w-full p-1.5 border rounded bg-white dark:bg-gray-700"
-                                      value={String(current?.[row]?.[col] ?? field.matrixConfig?.defaultValue ?? '')}
-                                      onChange={e => {
-                                        const matrix = { ...(current || {}) };
-                                        matrix[row] = { ...(matrix[row] || {}), [col]: e.target.value };
-                                        setField(field.key, matrix);
-                                      }}
-                                      disabled={readOnly}
-                                    />
+                                    <MatrixCellInput row={row} col={col} field={field} current={current} updateMatrix={(fn) => setField(field.key, fn)} readOnly={!!readOnly} rows={rows} />
                                   </td>
                                 ))}
-                                {field.matrixConfig?.enforceNumeric && (
-                                  <td className="p-2 text-center font-bold text-blue-700">
-                                    {(field.matrixConfig?.columns || []).reduce((acc, col) => acc + toNumber(current?.[row]?.[col]), 0)}
+                                {ops.map(op => (
+                                  <td key={`${row}-${op}`} className="p-2 text-center font-bold text-blue-700">
+                                    {applyMatrixOp(op, cols.map(col => toNumber(current?.[row]?.[col])))}
                                   </td>
-                                )}
+                                ))}
                               </tr>
                             ))}
-                            {field.matrixConfig?.enforceNumeric && (
-                              <tr className="border-t bg-blue-50/70 dark:bg-blue-900/20">
-                                <td className="p-2 font-bold">جمع ستون</td>
-                                {(field.matrixConfig?.columns || []).map(col => (
-                                  <td key={`${field.key}-sum-${col}`} className="p-2 text-center font-bold text-blue-700">
-                                    {(field.matrixConfig?.rows || []).reduce((acc, row) => acc + toNumber(current?.[row]?.[col]), 0)}
+                            {ops.map((op, oi) => (
+                              <tr key={`footer-${op}`} className="border-t bg-blue-50/70 dark:bg-blue-900/20">
+                                <td className="p-2 font-bold">{MATRIX_OP_LABELS[op]} ستون</td>
+                                {cols.map(col => (
+                                  <td key={`${op}-${col}`} className="p-2 text-center font-bold text-blue-700">
+                                    {applyMatrixOp(op, rows.map(row => toNumber(current?.[row]?.[col])))}
                                   </td>
                                 ))}
-                                <td className="p-2 text-center font-extrabold text-blue-800">
-                                  {(field.matrixConfig?.rows || []).reduce(
-                                    (acc, row) =>
-                                      acc +
-                                      (field.matrixConfig?.columns || []).reduce(
-                                        (rAcc, col) => rAcc + toNumber(current?.[row]?.[col]),
-                                        0
-                                      ),
-                                    0
-                                  )}
-                                </td>
+                                {ops.map((o, i) => (
+                                  <td key={o} className="p-2 text-center font-extrabold text-blue-800">
+                                    {i === oi ? applyMatrixOp(op, rows.flatMap(row => cols.map(col => toNumber(current?.[row]?.[col])))) : ''}
+                                  </td>
+                                ))}
                               </tr>
-                            )}
+                            ))}
                           </tbody>
                         </table>
                         {field.matrixConfig?.enforceNumeric && field.validation?.totalMustEqualField && (
@@ -673,7 +840,7 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                                   ),
                                 0
                               );
-                              const expected = toNumber(value[field.validation!.totalMustEqualField!]);
+                              const expected = resolveTotalMustEqualValue(value, field.validation!.totalMustEqualField!);
                               if (!expected) {
                                 return (
                                   <span className="text-gray-400">
@@ -690,21 +857,24 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                           </div>
                         )}
                       </div>
+                        );
+                      })()
                     ) : field.type === 'attendance' ? (
                       <>
                         {(!personnel || personnel.length === 0) ? (
                           <p className="text-[11px] text-gray-400">لیست پرسنل در دسترس نیست؛ این ابزار در Runtime گزارش شیفت فعال‌تر خواهد بود.</p>
                         ) : (
                           (() => {
+                            const personnelNorm = personnel.map((p: any) => ({ ...p, full_name: (p.full_name ?? p.fullName ?? p.name ?? '').toString().trim() }));
                             const att = (current || {}) as { attendanceMap?: Record<string, string>; leaveTypes?: Record<string, string> };
                             const attendanceMap = att.attendanceMap || {};
                             const leaveTypes = att.leaveTypes || {};
                             const update = (nextMap: Record<string, string>, nextLeave: Record<string, string>) =>
                               setField(field.key, { attendanceMap: nextMap, leaveTypes: nextLeave });
-                            const available = personnel.filter((p: any) => !attendanceMap[p.id]);
-                            const present = personnel.filter((p: any) => attendanceMap[p.id] === 'PRESENT');
-                            const leave = personnel.filter((p: any) => attendanceMap[p.id] === 'LEAVE');
-                            const absent = personnel.filter((p: any) => attendanceMap[p.id] === 'ABSENT');
+                            const available = personnelNorm.filter((p: any) => !attendanceMap[p.id]);
+                            const present = personnelNorm.filter((p: any) => attendanceMap[p.id] === 'PRESENT');
+                            const leave = personnelNorm.filter((p: any) => attendanceMap[p.id] === 'LEAVE');
+                            const absent = personnelNorm.filter((p: any) => attendanceMap[p.id] === 'ABSENT');
                             return (
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 {/* حاضرین */}
@@ -919,8 +1089,20 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                         className={fieldClass}
                         placeholder={field.placeholder || ''}
                         value={current}
-                        onChange={e => setField(field.key, field.type === 'number' ? e.target.value : e.target.value)}
+                        onChange={e => {
+                          if (field.type === 'number') {
+                            const raw = e.target.value === '' ? '' : Number(e.target.value);
+                            const clamped = raw === '' || Number.isNaN(raw)
+                              ? ''
+                              : Math.max(field.validation?.min ?? -Infinity, Math.min(field.validation?.max ?? Infinity, raw));
+                            setField(field.key, clamped);
+                          } else {
+                            setField(field.key, e.target.value);
+                          }
+                        }}
                         disabled={readOnly || field.readOnly}
+                        min={field.type === 'number' ? field.validation?.min : undefined}
+                        max={field.type === 'number' ? field.validation?.max : undefined}
                       />
                     )}
                     {field.helpText ? <p className="text-[11px] text-gray-400 mt-1">{field.helpText}</p> : null}
@@ -932,7 +1114,8 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
           })() )}
           </div>
         );
-      })}
+      })
+      )}
 
       {effectiveTabs.length > 1 && (
         <div className="flex items-center justify-between pt-6 border-t dark:border-gray-700 pb-4">

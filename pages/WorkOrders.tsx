@@ -170,10 +170,15 @@ export const WorkOrders: React.FC<WorkOrdersProps> = ({ initialData, onProcessCo
   const [allParts, setAllParts] = useState<any[]>([]); // New: Parts List
   const [locations, setLocations] = useState<any[]>([]);
   const [personnelList, setPersonnelList] = useState<any[]>([]);
+  const [shifts, setShifts] = useState<any[]>([]);
+  const [workActivityTypes, setWorkActivityTypes] = useState<any[]>([]);
+  const [workTypes, setWorkTypes] = useState<any[]>([]);
+  const [workOrderPriorities, setWorkOrderPriorities] = useState<any[]>([]);
   
   // Filtered Options States
   const [filteredEquipment, setFilteredEquipment] = useState<any[]>([]);
   const [filteredLocalNames, setFilteredLocalNames] = useState<any[]>([]);
+  const [equipmentLoading, setEquipmentLoading] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -205,24 +210,42 @@ export const WorkOrders: React.FC<WorkOrdersProps> = ({ initialData, onProcessCo
   const [partRows, setPartRows] = useState<PartRow[]>([]);
   const [docRows, setDocRows] = useState<{id: string, name: string}[]>([]);
 
-  // Initial Data Load
+  // Initial Data Load - تجهیز اول (فیلد کد تجهیز)، بقیه در پس‌زمینه
   useEffect(() => {
     const loadMasterData = async () => {
-        const eq = await fetchMasterData('equipment');
-        const ln = await fetchMasterData('equipment_local_names');
-        const loc = await fetchMasterData('locations');
-        const per = await fetchMasterData('personnel');
-        const pts = await fetchMasterData('parts'); // Fetch parts
-        
-        setAllEquipment(eq);
-        setAllLocalNames(ln);
-        setFilteredEquipment(eq);
-        setFilteredLocalNames(ln);
-        setLocations(loc);
-        setPersonnelList(per);
-        setAllParts(pts);
-        
-        setUnits(await fetchMasterData('measurement_units'));
+        try {
+            // 1. تجهیز را اول و فوراً بارگذاری کن (کد تجهیز)
+            const eq = await fetchMasterData('equipment');
+            setAllEquipment(eq);
+            setFilteredEquipment(eq);
+
+            // 2. بقیه داده‌ها در پس‌زمینه به صورت موازی
+            const lnPromise = fetchMasterData('equipment_local_names');
+            Promise.all([
+                lnPromise,
+                fetchMasterData('locations'),
+                fetchMasterData('personnel'),
+                fetchMasterData('parts'),
+                fetchMasterData('measurement_units'),
+                fetchMasterData('shifts'),
+                fetchMasterData('work_activity_types'),
+                fetchMasterData('work_types'),
+                fetchMasterData('work_order_priorities')
+            ]).then(([ln, loc, per, pts, units, sh, wAt, wT, wOp]) => {
+                setAllLocalNames(ln);
+                setFilteredLocalNames(ln);
+                setLocations(loc);
+                setPersonnelList(per);
+                setAllParts(pts);
+                setUnits(units);
+                setShifts(sh || []);
+                setWorkActivityTypes(wAt || []);
+                setWorkTypes(wT || []);
+                setWorkOrderPriorities(wOp || []);
+            });
+        } finally {
+            setEquipmentLoading(false);
+        }
     };
     loadMasterData();
 
@@ -538,7 +561,7 @@ export const WorkOrders: React.FC<WorkOrdersProps> = ({ initialData, onProcessCo
 
   if (trackingCode) {
       return (
-          <div className="max-w-2xl mx-auto pt-8 pb-20 px-4">
+          <div className="w-full max-w-full pt-8 pb-20 px-4">
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden animate-fadeIn">
                   <div className="bg-green-600 p-6 text-center text-white">
                       <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
@@ -559,7 +582,7 @@ export const WorkOrders: React.FC<WorkOrdersProps> = ({ initialData, onProcessCo
   }
 
   return (
-    <div className="max-w-4xl mx-auto pb-24">
+    <div className="w-full max-w-full pb-24">
       
       {/* Header */}
       <div className="flex justify-between items-center mb-6 sticky top-0 bg-gray-50 dark:bg-gray-900 z-20 py-2">
@@ -624,10 +647,9 @@ export const WorkOrders: React.FC<WorkOrdersProps> = ({ initialData, onProcessCo
                         className={`text-sm font-bold border rounded outline-none ${isExecutorMode || isViewOnly ? 'bg-transparent border-none cursor-not-allowed' : 'bg-white dark:bg-gray-800 p-1 cursor-pointer'}`}
                       >
                           <option value="">انتخاب...</option>
-                          <option value="DayWork">روزکار</option>
-                          <option value="A">شیفت A</option>
-                          <option value="B">شیفت B</option>
-                          <option value="C">شیفت C</option>
+                          {shifts.map((s) => (
+                            <option key={s.id} value={s.code}>{s.name}</option>
+                          ))}
                       </select>
                   </div>
               </div>
@@ -641,6 +663,11 @@ export const WorkOrders: React.FC<WorkOrdersProps> = ({ initialData, onProcessCo
                         <label className="block text-xs font-medium mb-1.5 text-gray-700 dark:text-gray-300">کد تجهیز <span className="text-red-500">*</span></label>
                         {isExecutorMode || isViewOnly ? (
                             <input type="text" value={formData.equipCode} disabled className="w-full p-2.5 border rounded-xl bg-gray-200 dark:bg-gray-600 cursor-not-allowed" />
+                        ) : equipmentLoading ? (
+                            <div className="w-full p-2.5 border rounded-xl bg-gray-100 dark:bg-gray-700 flex items-center gap-2 text-gray-500">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <span className="text-sm">در حال بارگذاری...</span>
+                            </div>
                         ) : (
                             <SearchableSelect 
                                 value={formData.equipCode}
@@ -719,28 +746,28 @@ export const WorkOrders: React.FC<WorkOrdersProps> = ({ initialData, onProcessCo
                   <div>
                       <label className="block text-sm font-medium mb-1.5 text-gray-700 dark:text-gray-300">نوع فعالیت <span className="text-red-500">*</span></label>
                       <select required disabled={isExecutorMode || isViewOnly} value={formData.workType} onChange={(e) => setFormData({...formData, workType: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${isExecutorMode || isViewOnly ? 'bg-gray-200 cursor-not-allowed' : 'bg-white dark:bg-gray-700'}`}>
-                          <option value="REPAIR">تعمیرات اضطراری (EM)</option>
-                          <option value="PM">نت پیشگیرانه (PM)</option>
-                          <option value="PROJECT">پروژه / اصلاح</option>
-                          <option value="INSPECTION">بازرسی فنی</option>
-                          <option value="SERVICE">سرویس عمومی</option>
+                          <option value="">انتخاب...</option>
+                          {workActivityTypes.map((w) => (
+                            <option key={w.id} value={w.code}>{w.name}</option>
+                          ))}
                       </select>
                   </div>
                   <div>
                       <label className="block text-sm font-medium mb-1.5 text-gray-700 dark:text-gray-300">نوع کار (دیسیپلین) <span className="text-red-500">*</span></label>
                       <select required disabled={isExecutorMode || isViewOnly} value={formData.workCategory} onChange={(e) => setFormData({...formData, workCategory: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${isExecutorMode || isViewOnly ? 'bg-gray-200 cursor-not-allowed' : 'bg-white dark:bg-gray-700'}`}>
-                          <option value="MECHANICAL">مکانیک</option>
-                          <option value="ELECTRICAL">برق</option>
-                          <option value="INSTRUMENTATION">ابزار دقیق</option>
-                          <option value="FACILITIES">تأسیسات صنعتی</option>
+                          <option value="">انتخاب...</option>
+                          {workTypes.map((w) => (
+                            <option key={w.id} value={w.code}>{w.name}</option>
+                          ))}
                       </select>
                   </div>
                   <div>
-                      <label className="block text-sm font-medium mb-1.5 text-gray-700 dark:text-gray-300">اولیت <span className="text-red-500">*</span></label>
+                      <label className="block text-sm font-medium mb-1.5 text-gray-700 dark:text-gray-300">اولویت انجام <span className="text-red-500">*</span></label>
                       <select required disabled={isExecutorMode || isViewOnly} value={formData.priority} onChange={(e) => setFormData({...formData, priority: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${isExecutorMode || isViewOnly ? 'bg-gray-200 cursor-not-allowed' : 'bg-white dark:bg-gray-700'}`}>
-                          <option value="NORMAL">عادی</option>
-                          <option value="URGENT">فوری</option>
-                          <option value="CRITICAL">بحرانی (توقف تولید)</option>
+                          <option value="">انتخاب...</option>
+                          {workOrderPriorities.map((p) => (
+                            <option key={p.id} value={p.code}>{p.name}</option>
+                          ))}
                       </select>
                   </div>
                </div>

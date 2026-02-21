@@ -94,7 +94,7 @@ export const useAdminLogic = (activeTab: EntityType) => {
   const getRequiredDropdownKeys = (tab: EntityType) => {
     switch (tab) {
       case 'app_users':
-        return ['personnel'];
+        return ['personnel', 'userGroups'];
       case 'personnel':
       case 'org_chart':
       case 'evaluation_criteria':
@@ -356,6 +356,21 @@ export const useAdminLogic = (activeTab: EntityType) => {
     setImportFileName('');
   };
 
+  const PAGE_SIZE = 1000;
+  const fetchAllPages = async <T,>(buildQuery: (from: number, to: number) => any): Promise<T[]> => {
+    const all: T[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await buildQuery(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const chunk = data || [];
+      all.push(...chunk);
+      if (chunk.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return all;
+  };
+
   const fetchData = async () => {
     setLoading(true);
     setErrorMsg(null);
@@ -366,46 +381,79 @@ export const useAdminLogic = (activeTab: EntityType) => {
     }
 
     try {
-      let query;
+      let tableData: any[];
 
       switch (activeTab) {
           case 'app_users':
-              query = supabase
-                  .from('app_users')
-                  .select('id, username, role, personnel_id, is_default_password, personnel(full_name, unit, personnel_code)')
-                  .order('created_at', { ascending: false });
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('app_users')
+                      .select('id, username, role, personnel_id, is_default_password, personnel(full_name, unit, personnel_code)')
+                      .order('created_at', { ascending: false })
+                      .range(from, to)
+              );
               break;
           
           case 'personnel':
-              query = supabase
-                  .from('personnel')
-                  .select('id, personnel_code, full_name, unit, mobile, email, profile_picture, org_unit_id')
-                  .order('created_at', { ascending: false });
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('personnel')
+                      .select('id, personnel_code, full_name, unit, mobile, email, profile_picture, org_unit_id')
+                      .order('personnel_code', { ascending: true })
+                      .range(from, to)
+              );
               break;
 
           case 'equipment':
-              query = supabase
-                  .from('equipment')
-                  .select('*') 
-                  .order('created_at', { ascending: false });
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('equipment').select('*').order('created_at', { ascending: false }).range(from, to)
+              );
               break;
 
           case 'evaluation_criteria':
-              query = supabase
-                  .from('evaluation_criteria')
-                  .select('*, org_chart(name)') 
-                  .order('created_at', { ascending: false });
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('evaluation_criteria')
+                      .select('*, org_chart(name)')
+                      .order('created_at', { ascending: false })
+                      .range(from, to)
+              );
+              break;
+
+          case 'shifts':
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('shifts').select('*').order('sort_order', { ascending: true }).range(from, to)
+              );
+              break;
+
+          case 'work_order_status':
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('work_order_status').select('*').order('sort_order', { ascending: true }).range(from, to)
+              );
+              break;
+
+          case 'work_activity_types':
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('work_activity_types').select('*').order('sort_order', { ascending: true }).range(from, to)
+              );
+              break;
+
+          case 'work_types':
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('work_types').select('*').order('sort_order', { ascending: true }).range(from, to)
+              );
+              break;
+
+          case 'work_order_priorities':
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from('work_order_priorities').select('*').order('sort_order', { ascending: true }).range(from, to)
+              );
               break;
 
           default:
-              query = supabase.from(tableName).select('*').order('created_at', { ascending: false });
+              tableData = await fetchAllPages((from, to) =>
+                  supabase.from(tableName).select('*').order('created_at', { ascending: false }).range(from, to)
+              );
       }
 
-      const { data: tableData, error } = await query;
-
-      if (error) throw error;
-
-      let processedData = tableData || [];
+      let processedData = tableData;
       
       if (activeTab === 'app_users') {
           processedData = processedData.map((u: any) => ({
@@ -508,9 +556,24 @@ export const useAdminLogic = (activeTab: EntityType) => {
   }, [activeTab]);
 
   const setEditingItemWrapper = (item: any) => {
-      // Use the item passed from the table which already contains joined data (e.g. full_name, unit, personnel_code)
-      // Do NOT re-fetch using select('*') as it strips joined fields.
-      setEditingItem(item); 
+      let enriched = { ...item };
+      if (activeTab === 'parts' && item?.category_id && dropdowns.allCategories?.length) {
+          const cats = dropdowns.allCategories;
+          const cat = cats.find((c: any) => c.id === item.category_id);
+          if (cat) {
+              if (cat.level_type === 'SUB_SUB') {
+                  enriched.temp_sub_cat_id = cat.parent_id || '';
+                  const subCat = cats.find((c: any) => c.id === enriched.temp_sub_cat_id);
+                  enriched.temp_main_cat_id = subCat?.parent_id || '';
+              } else if (cat.level_type === 'SUB') {
+                  enriched.temp_main_cat_id = cat.parent_id || '';
+                  enriched.temp_sub_cat_id = cat.id;
+              } else if (cat.level_type === 'MAIN') {
+                  enriched.temp_main_cat_id = cat.id;
+              }
+          }
+      }
+      setEditingItem(enriched);
       setIsModalOpen(true);
   };
 
@@ -558,7 +621,7 @@ export const useAdminLogic = (activeTab: EntityType) => {
 
     // STRICT CLEANUP FOR PARTS
     if (activeTab === 'parts') {
-        const validCols = ['id', 'code', 'name', 'category_id', 'stock_unit_id', 'consumption_unit_id', 'created_at'];
+        const validCols = ['id', 'code', 'name', 'category_id', 'stock_unit_id', 'consumption_unit_id', 'current_stock', 'min_stock', 'reorder_quantity', 'warehouse_row', 'shelf', 'unit_price', 'created_at'];
         const cleanPayload: any = {};
         validCols.forEach(col => {
             if (payload[col] !== undefined) cleanPayload[col] = payload[col];
@@ -571,7 +634,19 @@ export const useAdminLogic = (activeTab: EntityType) => {
     delete payload.org_unit_name; 
     delete payload.org_chart; 
     
-    if (activeTab === 'app_users' && payload.personnel) delete payload.personnel; 
+    if (activeTab === 'app_users') {
+        delete payload.personnel;
+        delete payload.personnel_profile;
+        if (!payload.id && !payload.password) {
+            const p = payload.personnel_id ? dropdowns.personnel?.find((x: any) => x.id === payload.personnel_id) : null;
+            payload.password = p?.personnel_code || '123456';
+            payload.is_default_password = true;
+        }
+        const appUserCols = ['id', 'username', 'role', 'personnel_id', 'password', 'is_default_password', 'avatar'];
+        const clean: any = {};
+        appUserCols.forEach(col => { if (payload[col] !== undefined) clean[col] = payload[col]; });
+        payload = clean;
+    }
 
     try {
         if (payload.id) {
@@ -1260,10 +1335,16 @@ export const useAdminLogic = (activeTab: EntityType) => {
           const keys = columns.map((c: any) => c.key).filter(Boolean);
           if (!keys.length) continue;
           const orderBy = normalizeText(ref.orderBy || keys[0]);
-          const { data: refData, error } = await supabase.from(table).select(keys.join(',')).order(orderBy, { ascending: true });
-          if (error) throw error;
-
-          const formatted = (refData || []).map((item: any) => {
+          const refChunks: any[] = [];
+          let refFrom = 0;
+          while (true) {
+              const { data: chunk, error } = await supabase.from(table).select(keys.join(',')).order(orderBy, { ascending: true }).range(refFrom, refFrom + PAGE_SIZE - 1);
+              if (error) throw error;
+              refChunks.push(...(chunk || []));
+              if (!chunk || chunk.length < PAGE_SIZE) break;
+              refFrom += PAGE_SIZE;
+          }
+          const formatted = refChunks.map((item: any) => {
             const row: any = {};
             columns.forEach((c: any) => {
               row[c.header || c.key] = item[c.key] ?? '';

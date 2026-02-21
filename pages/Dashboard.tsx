@@ -2,8 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { MOCK_CHART_DATA, MOCK_LINE_DATA } from '../constants';
-import { getShamsiDate, getShiftRotation, getPersianDayName } from '../utils';
-import { Sun, Moon, Coffee, CalendarRange, ChevronLeft, Wrench, ClipboardCheck, Package, AlertTriangle, ArrowUpLeft, TrendingUp, RefreshCw } from 'lucide-react';
+import { getShamsiDate, getShiftRotation, getPersianDayName, toPersianDigits } from '../utils';
+import { Sun, Moon, Coffee, CalendarRange, Wrench, ClipboardCheck, Package, AlertTriangle, ArrowUpLeft, TrendingUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 
@@ -112,9 +112,6 @@ export const Dashboard: React.FC = () => {
             <h1 className="text-2xl font-black text-gray-800 dark:text-white mb-1">داشبورد مدیریتی</h1>
             <p className="text-sm text-gray-500">خلاصه وضعیت عملیات کارخانه در یک نگاه</p>
         </div>
-        <button onClick={fetchRealStats} className="p-2 bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 transition">
-            <RefreshCw className={`w-5 h-5 text-gray-600 dark:text-gray-300 ${loadingStats ? 'animate-spin' : ''}`} />
-        </button>
       </div>
 
       {/* Operational Overview Section */}
@@ -122,28 +119,21 @@ export const Dashboard: React.FC = () => {
         
         {/* Right Side (RTL): Calendar Widget */}
         <div className="w-full lg:w-96 flex-shrink-0">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden flex flex-col group transition-all hover:shadow-md h-full">
+            <div onClick={() => navigate('/work-calendar')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && navigate('/work-calendar')} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden flex flex-col group transition-all hover:shadow-md h-full cursor-pointer">
                {/* Widget Header */}
-               <div className="bg-gradient-to-br from-[#800020] to-rose-600 p-6 text-white flex justify-between items-start relative overflow-hidden">
-                  <div className="absolute -right-6 -top-6 opacity-10 transform rotate-12 transition-transform duration-500 group-hover:scale-110">
+               <div className="bg-gradient-to-br from-[#800020] to-rose-600 p-6 text-white flex justify-center items-center relative overflow-hidden">
+                  <div className="absolute -right-4 -top-9 opacity-10 transform rotate-12 transition-transform duration-500 group-hover:scale-110">
                       <CalendarRange className="w-40 h-40" />
                   </div>
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-2">
+                  <div className="relative z-10 text-center">
+                    <div className="flex items-center justify-center gap-2 mb-2">
                         <div className="p-1.5 rounded-lg bg-white/20 backdrop-blur-md border border-white/30 shadow-inner">
                             <CalendarRange className="w-4 h-4 text-white" />
                         </div>
                         <h3 className="text-2xl font-black">{dayName}</h3>
                     </div>
-                    <p className="text-sm font-mono opacity-90 tracking-widest mr-1">{today}</p>
+                    <p className="text-xl font-bold font-sans opacity-90 tracking-wide" style={{ fontFamily: 'Vazirmatn, Tahoma, sans-serif' }}>{toPersianDigits(today)}</p>
                   </div>
-                  <button 
-                    onClick={() => navigate('/work-calendar')}
-                    className="relative z-10 p-2 bg-white/20 hover:bg-white/30 rounded-xl transition backdrop-blur-sm"
-                    title="تقویم کامل"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </button>
                </div>
 
                {/* Shift List - Vertical with distributed spacing */}
@@ -173,11 +163,7 @@ export const Dashboard: React.FC = () => {
 
                    return (
                      <div key={s} className={`relative overflow-hidden p-3 rounded-2xl border transition-all hover:scale-[1.02] hover:shadow-md ${config.style}`}>
-                        <div className="relative z-10 flex items-center gap-4">
-                            {/* Letter Container - Brighter Border */}
-                            <div className="w-12 h-12 rounded-xl bg-white/40 dark:bg-white/10 backdrop-blur-md flex items-center justify-center font-black text-xl shadow-sm border border-white/50 dark:border-white/20">
-                                {s}
-                            </div>
+                        <div className="relative z-10 flex items-center justify-center gap-4">
                             <div className="flex flex-col">
                                 {/* Wrapped Icon Container */}
                                 <div className="flex items-center gap-2 mb-1">
@@ -190,7 +176,7 @@ export const Dashboard: React.FC = () => {
                             </div>
                         </div>
                         {/* Background Decor */}
-                        <div className="absolute -bottom-2 -left-2 opacity-40 transform rotate-12 pointer-events-none">
+                        <div className="absolute top-2 -right-0 opacity-40 transform rotate-12 pointer-events-none">
                             <Icon className="w-16 h-16 text-white" />
                         </div>
                      </div>
@@ -209,24 +195,24 @@ export const Dashboard: React.FC = () => {
                 className={`relative overflow-hidden p-5 rounded-2xl shadow-lg transition-all hover:-translate-y-1 hover:shadow-xl cursor-pointer ${stat.gradient} ${stat.shadow} group`}
               >
                 
-                {/* Content */}
+                {/* Content - هدر (عنوان + آیکون) بالا، مقدار پایین */}
                 <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-2">
-                        <div className="p-1.5 rounded-lg bg-white/20 backdrop-blur-md border border-white/30 shadow-inner">
-                            <stat.icon className="w-4 h-4 text-white" />
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <div className="p-1.5 rounded-lg bg-white/20 backdrop-blur-md border border-white/30 shadow-inner">
+                                <stat.icon className="w-4 h-4 text-white" />
+                            </div>
+                            <p className="text-sm text-white/90 font-bold opacity-90">{stat.label}</p>
                         </div>
-                        <p className="text-sm text-white/90 font-bold opacity-90">{stat.label}</p>
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <p className="text-4xl font-black text-white tracking-tight">{loadingStats ? '...' : stat.val}</p>
                         <div className="bg-white/20 p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
                             <ArrowUpLeft className="w-5 h-5 text-white" />
                         </div>
                     </div>
+                    <p className="text-4xl font-black text-white tracking-tight">{loadingStats ? '...' : toPersianDigits(stat.val)}</p>
                 </div>
 
-                {/* Decorative background icon */}
-                <div className="absolute -bottom-6 -left-6 opacity-10 rotate-12 transition-transform duration-500 group-hover:scale-110 group-hover:rotate-6">
+                {/* Decorative background icon - سمت چپ، کمی پایین‌تر */}
+                <div className="absolute top-2 -left-4 opacity-10 rotate-12 transition-transform duration-500 group-hover:scale-110 group-hover:rotate-6">
                     <stat.icon className="w-32 h-32 text-white" />
                 </div>
                 
@@ -240,18 +226,15 @@ export const Dashboard: React.FC = () => {
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-4">
         <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-700 dark:text-gray-200">توقفات تجهیزات (دقیقه)</h3>
-              <div className="flex gap-2">
-                  <span className="w-3 h-3 rounded-full bg-[#800020]"></span>
-              </div>
-          </div>
+          <h3 className="text-lg font-bold text-gray-700 dark:text-gray-200 mb-6">توقفات تجهیزات (دقیقه)</h3>
           <div className="h-72 w-full min-h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={MOCK_CHART_DATA}>
+              <BarChart data={MOCK_CHART_DATA} margin={{ left: -15, right: 10, top: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                 <XAxis dataKey="name" stroke="#9ca3af" fontSize={11} tickMargin={10} />
-                <YAxis stroke="#9ca3af" fontSize={11} />
+                <YAxis stroke="#9ca3af" fontSize={11} tick={({ x, y, payload }) => (
+                <g transform={`translate(${x - 25}, ${y + 4})`}><text textAnchor="end" fontSize={11} x={0} y={0}>{payload?.value ?? payload}</text></g>
+              )} />
                 <Tooltip 
                     cursor={{ fill: 'transparent' }}
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', fontFamily: 'inherit' }} 
@@ -266,10 +249,12 @@ export const Dashboard: React.FC = () => {
           <h3 className="text-lg font-bold mb-6 text-gray-700 dark:text-gray-200">روند درخواست‌ها</h3>
           <div className="h-72 w-full min-h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={MOCK_LINE_DATA}>
+              <LineChart data={MOCK_LINE_DATA} margin={{ left: -15, right: 10, top: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                 <XAxis dataKey="name" stroke="#9ca3af" fontSize={11} tickMargin={10} />
-                <YAxis stroke="#9ca3af" fontSize={11} />
+                <YAxis stroke="#9ca3af" fontSize={11} tick={({ x, y, payload }) => (
+                <g transform={`translate(${x - 25}, ${y + 4})`}><text textAnchor="end" fontSize={11} x={0} y={0}>{payload?.value ?? payload}</text></g>
+              )} />
                 <Tooltip 
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', fontFamily: 'inherit' }}
                 />

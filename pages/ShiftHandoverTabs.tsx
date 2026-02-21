@@ -2,7 +2,7 @@
 import React from 'react';
 import { X, Plus, Trash2, Power, Mic, Disc, Droplet, CheckSquare, Square } from 'lucide-react';
 import { 
-    PRODUCTION_TIMES, FEED_TYPES_OPTIONS, BALL_SIZES, THICKENER_TIMES, 
+    getProductionTimes, FEED_TYPES_OPTIONS, BALL_SIZES, THICKENER_TIMES, 
     toPersianNum, parseTimeToMinutes 
 } from './ShiftHandoverTypes';
 import { ClockTimePicker } from '../components/ClockTimePicker';
@@ -47,39 +47,57 @@ export const OperatorSelect = ({ value, onChange, disabled, personnel, attendanc
 
 // --- TABS ---
 
-/** حداقل و حداکثر درصد هر نوع خوراک */
-const PERCENT_MIN = 1;
-const PERCENT_MAX = 100;
+const MAX_FEED_COLS = 6;
+const feedCols = Array.from({ length: MAX_FEED_COLS }, (_, i) => i);
 
-/** تعداد حداکثر انواع خوراک (هر یک حداقل ۱٪ => حداکثر ۱۰۰ نوع) */
-const MAX_FEED_SLOTS = 10;
-
-const ensureFeedSlots = (arr: any[]): any[] => {
-    const copy = [...arr];
-    while (copy.length < MAX_FEED_SLOTS) copy.push({ type: '', percent: 0 });
-    return copy.slice(0, MAX_FEED_SLOTS);
+const getFeedDataPadded = (data: any[] | undefined): { type: string; percent: number; isCustom?: boolean }[] => {
+    const arr = data && Array.isArray(data) ? [...data] : [];
+    while (arr.length < MAX_FEED_COLS) arr.push({ type: '', percent: 0 });
+    return arr;
 };
 
-/** تعداد ستون‌های نوع خوراک قابل نمایش: اول فقط نوع ۱، اگر جمع<۱۰۰ نوع ۲، اگر جمع<۱۰۰ نوع ۳ و ... */
-const getVisibleFeedCount = (feedData: any[]): number => {
+/** نمایش ستون N: فقط وقتی sum(0..N-1)<100 و ستون N-1 پر شده */
+const shouldShowFeedCol = (feedData: { type: string; percent: number }[], colIdx: number): boolean => {
+    if (colIdx === 0) return true;
     let sum = 0;
-    for (let i = 0; i < Math.min(feedData.length, MAX_FEED_SLOTS); i++) {
-        sum += Number(feedData[i]?.percent || 0);
-        if (sum >= 100) return i + 1;
-        /* اگر به سلول خالی (درصد ۰) رسیدیم و قبلاً درصدی داریم → نیاز به نمایش این ستون خالی برای تکمیل */
-        if (Number(feedData[i]?.percent || 0) === 0 && sum > 0) return i + 1;
-    }
-    return 1; /* فرم اولیه فقط نوع خوراک ۱ */
+    for (let i = 0; i < colIdx; i++) sum += Number(feedData[i]?.percent || 0);
+    const prevVal = Number(feedData[colIdx - 1]?.percent || 0);
+    return sum > 0 && sum < 100 && prevVal > 0;
 };
 
-export const TabProduction = ({ production, feedInfo, isReadOnly, productionTimes: propTimes, handleTonnageChange, handleFeedTypeChange, handleCustomFeedType, resetFeedType, handleFeedPercentChange, feedLinesActive, setFeedLinesActive }: any) => {
-    const productionTimes = propTimes ?? PRODUCTION_TIMES;
+/** حداکثر ستون نمایشی: ستون N فقط وقتی sum(0..N-1)<100 و ستون N-1 پر شده */
+const getMaxVisibleFeedColForRow = (feedData: { type: string; percent: number }[]): number => {
+    let sum = 0;
+    for (let c = 0; c < MAX_FEED_COLS; c++) {
+        sum += Number(feedData[c]?.percent || 0);
+        if (sum >= 100) return c;
+    }
+    const sum0 = Number(feedData[0]?.percent || 0);
+    if (sum0 >= 100 || sum0 <= 0) return 0;
+    let maxCol = 1;
+    for (let c = 1; c < MAX_FEED_COLS; c++) {
+        let s = 0;
+        for (let i = 0; i < c; i++) s += Number(feedData[i]?.percent || 0);
+        const prevVal = Number(feedData[c - 1]?.percent || 0);
+        if (s < 100 && prevVal > 0) maxCol = c;
+        else break;
+    }
+    return maxCol;
+};
+
+export const TabProduction = ({ production, feedInfo, isReadOnly, handleTonnageChange, handleFeedTypeChange, handleCustomFeedType, resetFeedType, handleFeedPercentChange, feedLinesActive, setFeedLinesActive, shiftType = 'Day1', dynamicFeedColumns = false }: any) => {
+    const productionTimes = getProductionTimes(shiftType);
     return (
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm">
             {['lineA', 'lineB'].map(line => {
                 const isActive = feedLinesActive[line];
                 const lineProd = production[line] || {};
                 const totalTonnage = Object.values(lineProd).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+
+                const maxVisibleFeedCol = dynamicFeedColumns
+                    ? Math.max(0, ...productionTimes.map((time) => getMaxVisibleFeedColForRow(getFeedDataPadded(feedInfo[line]?.[time]))))
+                    : 1;
+                const visibleFeedCols = dynamicFeedColumns ? Array.from({ length: maxVisibleFeedCol + 1 }, (_, i) => i) : [0, 1];
 
                 return (
                 <div key={line} className="mb-8 p-4 border border-gray-100 dark:border-gray-700 rounded-xl bg-gray-50/50 dark:bg-gray-700/20">
@@ -94,93 +112,161 @@ export const TabProduction = ({ production, feedInfo, isReadOnly, productionTime
                         />
                     </div>
                     
-                    {isActive && (() => {
-                        const maxVisibleCount = Math.min(MAX_FEED_SLOTS, Math.max(1, ...productionTimes.map((time: string) => getVisibleFeedCount(ensureFeedSlots(feedInfo[line]?.[time] || [{ type: '', percent: 0 }])))));
-                        return (
+                    {isActive && (
                     <div className="overflow-x-auto animate-fadeIn">
                         <table className="w-full text-center text-xs">
                             <thead>
                                 <tr className="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-200">
                                     <th className="p-3 rounded-tr-lg">ساعت</th>
                                     <th className="p-3">تناژ</th>
-                                    {Array.from({ length: maxVisibleCount }, (_, i) => (
-                                        <React.Fragment key={i}>
-                                            <th className="p-3">نوع خوراک {i + 1}</th>
+                                    {dynamicFeedColumns ? (
+                                        visibleFeedCols.map((i, vi) => (
+                                            <React.Fragment key={i}>
+                                                <th className="p-3">نوع خوراک {String.fromCharCode(1632 + i + 1)}</th>
+                                                <th className="p-3">درصد</th>
+                                            </React.Fragment>
+                                        ))
+                                    ) : (
+                                        <>
+                                            <th className="p-3">نوع خوراک ۱</th>
                                             <th className="p-3">درصد</th>
-                                        </React.Fragment>
-                                    ))}
+                                            <th className="p-3">نوع خوراک ۲</th>
+                                            <th className="p-3">درصد</th>
+                                        </>
+                                    )}
+                                    <th className="p-3 rounded-tl-lg border-l-2 border-gray-400 dark:border-gray-500 bg-gray-100 dark:bg-gray-600/50 font-bold">مجموع خوراک مصرفی</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white dark:bg-gray-800">
-                                {productionTimes.map((time: string, idx: number) => {
-                                    const feedData = ensureFeedSlots(feedInfo[line]?.[time] || [{ type: '', percent: 0 }]);
-                                    const visibleCount = getVisibleFeedCount(feedData);
-                                    const totalPercent = feedData.slice(0, visibleCount).reduce((s: number, f: any) => s + Number(f?.percent || 0), 0);
-                                    const isValidTotal = totalPercent === 100;
+                                {productionTimes.map((time, idx) => {
+                                    const feedData = getFeedDataPadded(feedInfo[line]?.[time]);
+                                    const feed1 = feedData[0] || { type: '', percent: 0 };
+                                    const feed2 = feedData[1] || { type: '', percent: 0 };
+                                    const showFeed2Static = feed1.percent > 0 && feed1.percent < 100;
+                                    const feed2Options = FEED_TYPES_OPTIONS.filter(o => o !== feed1.type);
+
+                                    const totalPercent = feedData.reduce((a, f) => a + Number(f?.percent || 0), 0);
+                                    const isIncomplete = totalPercent > 0 && totalPercent < 100;
+
+                                    if (!dynamicFeedColumns) {
+                                        return (
+                                            <tr key={time} className={`border-b dark:border-gray-700 transition ${isIncomplete ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}>
+                                                <td className="p-2 font-bold text-gray-500">{time}</td>
+                                                <td className="p-1">
+                                                    <input type="number" className="w-20 p-2 text-center border rounded-lg font-bold outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-700 dark:border-gray-600" value={production[line][time] || ''} onChange={e => handleTonnageChange(line, time, e.target.value)} disabled={isReadOnly} placeholder="0" />
+                                                </td>
+                                                <td className="p-1">
+                                                    {feed1.isCustom ? (
+                                                        <div className="flex items-center gap-1 justify-center">
+                                                            <input type="text" className="w-24 p-2 border rounded-lg text-xs dark:bg-gray-700 dark:border-gray-600" value={feed1.type} onChange={e => handleCustomFeedType(line, idx, 0, e.target.value)} disabled={isReadOnly} placeholder="نام..." />
+                                                            <button type="button" onClick={() => resetFeedType(line, idx, 0)} className="text-red-500 hover:text-red-700"><X className="w-4 h-4"/></button>
+                                                        </div>
+                                                    ) : (
+                                                        <select className="w-28 p-2 border rounded-lg outline-none bg-white dark:bg-gray-700 dark:border-gray-600" value={feed1.type || ''} onChange={e => handleFeedTypeChange(line, idx, 0, e.target.value)} disabled={isReadOnly}>
+                                                            <option value="">انتخاب...</option>
+                                                            {FEED_TYPES_OPTIONS.map(o=><option key={o} value={o}>{o}</option>)}
+                                                        </select>
+                                                    )}
+                                                </td>
+                                                <td className="p-1">
+                                                    <input type="number" min="0" max={100} className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:border-gray-600" value={feed1.percent || ''} onChange={e => handleFeedPercentChange(line, idx, 0, e.target.value)} disabled={isReadOnly} placeholder="%" />
+                                                </td>
+                                                <td className="p-1">
+                                                    {showFeed2Static ? (
+                                                        feed2.isCustom ? (
+                                                            <div className="flex items-center gap-1 justify-center">
+                                                                <input type="text" className="w-24 p-2 border rounded-lg text-xs dark:bg-gray-700 dark:border-gray-600" value={feed2.type} onChange={e => handleCustomFeedType(line, idx, 1, e.target.value)} disabled={isReadOnly} placeholder="نام..." />
+                                                                <button type="button" onClick={() => resetFeedType(line, idx, 1)} className="text-red-500 hover:text-red-700"><X className="w-4 h-4"/></button>
+                                                            </div>
+                                                        ) : (
+                                                            <select className="w-28 p-2 border rounded-lg outline-none bg-white dark:bg-gray-700 dark:border-gray-600" value={feed2.type || ''} onChange={e => handleFeedTypeChange(line, idx, 1, e.target.value)} disabled={isReadOnly}>
+                                                                <option value="">انتخاب...</option>
+                                                                {feed2Options.map(o=><option key={o} value={o}>{o}</option>)}
+                                                            </select>
+                                                        )
+                                                    ) : (
+                                                        <span className="text-gray-300">-</span>
+                                                    )}
+                                                </td>
+                                                <td className="p-1">
+                                                    {showFeed2Static ? (
+                                                        <input type="number" min="0" max={Math.max(0, 100 - Number(feed1.percent || 0))} className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:border-gray-600" value={feed2.percent || ''} onChange={e => handleFeedPercentChange(line, idx, 1, e.target.value)} disabled={isReadOnly} placeholder="%" />
+                                                    ) : (
+                                                        <span className="text-gray-300">-</span>
+                                                    )}
+                                                </td>
+                                                <td className="p-2 border-l-2 border-gray-400 dark:border-gray-500 bg-gray-50 dark:bg-gray-700/50"></td>
+                                            </tr>
+                                        );
+                                    }
+
+                                    const getUsedTypes = (upTo: number) => {
+                                        const s = new Set<string>();
+                                        for (let i = 0; i < upTo; i++) {
+                                            const t = feedData[i]?.type;
+                                            if (t) s.add(t);
+                                        }
+                                        return s;
+                                    };
 
                                     return (
-                                    <tr key={time} className={`border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition ${!isValidTotal && totalPercent > 0 ? 'bg-amber-50/50 dark:bg-amber-900/10' : ''}`}>
+                                    <tr key={time} className={`border-b dark:border-gray-700 transition ${isIncomplete ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}>
                                         <td className="p-2 font-bold text-gray-500">{time}</td>
                                         <td className="p-1">
-                                            <input 
-                                                type="number" 
-                                                min="0"
-                                                className="w-20 p-2 text-center border rounded-lg font-bold outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-700 dark:border-gray-600" 
-                                                value={production[line][time] || ''} 
-                                                onChange={e => handleTonnageChange(line, time, idx, e.target.value)} 
-                                                disabled={isReadOnly} 
-                                                placeholder="0"
-                                            />
+                                            <input type="number" className="w-20 p-2 text-center border rounded-lg font-bold outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-700 dark:border-gray-600" value={production[line][time] || ''} onChange={e => handleTonnageChange(line, time, e.target.value)} disabled={isReadOnly} placeholder="0" />
                                         </td>
-                                        {Array.from({ length: maxVisibleCount }, (_, feedIdx) => {
-                                            if (feedIdx >= visibleCount) return <React.Fragment key={feedIdx}><td className="p-1 text-gray-300">-</td><td className="p-1 text-gray-300">-</td></React.Fragment>;
+                                        {visibleFeedCols.map(feedIdx => {
+                                            const show = shouldShowFeedCol(feedData, feedIdx);
                                             const feed = feedData[feedIdx] || { type: '', percent: 0 };
-                                            const usedTypes = feedData.slice(0, feedIdx).map((f: any) => f?.type).filter(Boolean);
-                                            const feedOptions = FEED_TYPES_OPTIONS.filter(o => !usedTypes.includes(o));
+                                            const usedTypes = getUsedTypes(feedIdx);
+                                            const options = FEED_TYPES_OPTIONS.filter(o => !usedTypes.has(o) || o === feed.type);
+                                            let sumPrev = 0;
+                                            for (let i = 0; i < feedIdx; i++) sumPrev += Number(feedData[i]?.percent || 0);
+                                            const maxPercent = Math.max(0, 100 - sumPrev);
                                             return (
                                                 <React.Fragment key={feedIdx}>
                                                     <td className="p-1">
-                                                        {feed.isCustom ? (
-                                                            <div className="flex items-center gap-1 justify-center">
-                                                                <input type="text" className="w-24 p-2 border rounded-lg text-xs dark:bg-gray-700 dark:border-gray-600" value={feed.type} onChange={e => handleCustomFeedType(line, idx, feedIdx, e.target.value)} disabled={isReadOnly} placeholder="نام..." />
-                                                                <button type="button" onClick={() => resetFeedType(line, idx, feedIdx)} className="text-red-500 hover:text-red-700"><X className="w-4 h-4"/></button>
-                                                            </div>
+                                                        {show ? (
+                                                            feed.isCustom ? (
+                                                                <div className="flex items-center gap-1 justify-center">
+                                                                    <input type="text" className="w-24 p-2 border rounded-lg text-xs dark:bg-gray-700 dark:border-gray-600" value={feed.type} onChange={e => handleCustomFeedType(line, idx, feedIdx, e.target.value)} disabled={isReadOnly} placeholder="نام..." />
+                                                                    <button type="button" onClick={() => resetFeedType(line, idx, feedIdx)} className="text-red-500 hover:text-red-700"><X className="w-4 h-4"/></button>
+                                                                </div>
+                                                            ) : (
+                                                                <select className="w-28 p-2 border rounded-lg outline-none bg-white dark:bg-gray-700 dark:border-gray-600" value={feed.type || ''} onChange={e => handleFeedTypeChange(line, idx, feedIdx, e.target.value)} disabled={isReadOnly}>
+                                                                    <option value="">انتخاب...</option>
+                                                                    {options.map(o=><option key={o} value={o}>{o}</option>)}
+                                                                </select>
+                                                            )
                                                         ) : (
-                                                            <select className="w-28 p-2 border rounded-lg outline-none bg-white dark:bg-gray-700 dark:border-gray-600" value={feed.type || ''} onChange={e => handleFeedTypeChange(line, idx, feedIdx, e.target.value)} disabled={isReadOnly}>
-                                                                <option value="">انتخاب...</option>
-                                                                {feedOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                                            </select>
+                                                            <span className="text-gray-300">-</span>
                                                         )}
                                                     </td>
                                                     <td className="p-1">
-                                                        <input 
-                                                            type="number" 
-                                                            min={PERCENT_MIN} 
-                                                            max={PERCENT_MAX} 
-                                                            className={`w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:border-gray-600 ${!isValidTotal && totalPercent > 0 ? 'border-amber-500' : ''}`} 
-                                                            value={feed.percent || ''} 
-                                                            onChange={e => handleFeedPercentChange(line, idx, feedIdx, e.target.value)} 
-                                                            disabled={isReadOnly} 
-                                                            placeholder="%" 
-                                                        />
+                                                        {show ? (
+                                                            <input type="number" min="0" max={maxPercent} className="w-16 p-2 text-center border rounded-lg dark:bg-gray-700 dark:border-gray-600" value={feed.percent || ''} onChange={e => handleFeedPercentChange(line, idx, feedIdx, e.target.value)} disabled={isReadOnly} placeholder="%" />
+                                                        ) : (
+                                                            <span className="text-gray-300">-</span>
+                                                        )}
                                                     </td>
                                                 </React.Fragment>
                                             );
                                         })}
+                                        <td className="p-2 border-l-2 border-gray-400 dark:border-gray-500 bg-gray-50 dark:bg-gray-700/50"></td>
                                     </tr>
                                 )})}
                             </tbody>
                             <tfoot>
                                 <tr className={`border-t-2 font-bold ${line === 'lineA' ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
                                     <td className="p-3 text-right pr-6">مجموع تناژ:</td>
-                                    <td className="p-3 text-center text-lg">{totalTonnage.toLocaleString()} <span className="text-xs font-normal">تن</span></td>
-                                    <td colSpan={maxVisibleCount * 2}></td>
+                                    <td className="p-3"></td>
+                                    <td colSpan={dynamicFeedColumns ? visibleFeedCols.length * 2 : 4}></td>
+                                    <td className="p-3 text-center text-lg border-l-2 border-gray-400 dark:border-gray-500 bg-gray-100 dark:bg-gray-600/50 font-black">{totalTonnage.toLocaleString()} <span className="text-xs font-normal">تن</span></td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
-                        );
-                    })()}
+                    )}
                 </div>
             )})}
         </div>

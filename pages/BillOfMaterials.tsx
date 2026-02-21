@@ -72,7 +72,7 @@ export const BillOfMaterials: React.FC<{ user: User }> = ({ user }) => {
   const selectedEquip = equipmentList.find(e => e.id === selectedEquipId);
 
   return (
-      <div className="max-w-7xl mx-auto pb-20 p-4 h-[calc(100vh-100px)] flex flex-col md:flex-row gap-6">
+      <div className="w-full max-w-full pb-20 p-4 h-[calc(100vh-100px)] flex flex-col md:flex-row gap-6">
           {/* Sidebar: Equipment List */}
           <div className="w-full md:w-1/3 bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 flex flex-col">
               <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900">

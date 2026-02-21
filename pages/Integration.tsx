@@ -6,7 +6,7 @@ export const Integration: React.FC = () => {
   const apiUrl = "https://krgznynrljnvxwhvsdxj.supabase.co/rest/v1";
   
   return (
-      <div className="max-w-4xl mx-auto pb-20 space-y-6">
+      <div className="w-full max-w-full pb-20 space-y-6">
           <div className="flex items-center gap-2 mb-6">
               <div className="bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm">
                   <Database className="w-6 h-6 text-primary" />

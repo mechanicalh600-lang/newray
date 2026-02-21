@@ -87,6 +87,8 @@ export const ChatAssistant: React.FC<{ user: User }> = ({ user }) => {
           5. Use formatting (bullet points, bold text) to make it readable.
           6. If the data is empty, say so.
           7. For "Most frequent failures", calculate the frequency of equipment names in the work orders list and show the top 10.
+
+          When user asks for "کوئری بررسی نشست کاربری" or "کوئری دیتابیس" provide: SELECT id, org_name, session_timeout_minutes AS "مدت_نشست_دقیقه", created_at FROM app_settings ORDER BY created_at LIMIT 1;
         `;
     } catch (error) {
         console.error("Error collecting context:", error);
@@ -104,10 +106,7 @@ export const ChatAssistant: React.FC<{ user: User }> = ({ user }) => {
     setIsLoading(true);
 
     try {
-      // Hardcoded Google API Key for development as requested
-      const apiKey = 'AIzaSyBbrl8wKH28MYJn0yx2AZO6fqQUyhlm-KI';
-      
-      // Check API Key
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
       if (!apiKey) {
           throw new Error("کلید API گوگل تنظیم نشده است.");
       }

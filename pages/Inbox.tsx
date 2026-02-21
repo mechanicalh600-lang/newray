@@ -255,11 +255,11 @@ export const Inbox: React.FC<{ user: User }> = ({ user }) => {
 
   // Main Render
   if (selectedItem) {
-    return <div className="max-w-7xl mx-auto h-[calc(100vh-100px)] p-4"><ItemDetail item={selectedItem} /></div>;
+    return <div className="w-full max-w-full h-[calc(100vh-100px)] p-4"><ItemDetail item={selectedItem} /></div>;
   }
 
   return (
-    <div className="max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col md:flex-row gap-6 p-4">
+    <div className="w-full max-w-full h-[calc(100vh-100px)] flex flex-col md:flex-row gap-6 p-4">
         
         {/* Sidebar / Categories */}
         <div className="w-full md:w-64 flex-shrink-0 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden flex flex-col">
