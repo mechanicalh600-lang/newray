@@ -1,3 +1,6 @@
+# برای اتصال دیتابیس در نسخهٔ منتشرشده، در Settings → Secrets and variables → Actions دو مخفی اضافه کنید:
+#   SUPABASE_URL      = آدرس پروژه (مثال: https://xxxx.supabase.co)
+#   SUPABASE_ANON_KEY = کلید anon از Supabase → Project Settings → API
 name: Deploy to GitHub Pages
 
 on:
@@ -32,6 +35,10 @@ jobs:
         run: npm ci
 
       - name: Build app
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_BASE_URL: /newray/
         run: npm run build -- --base=/newray/
 
       - name: Upload Pages artifact
