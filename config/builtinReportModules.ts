@@ -1,0 +1,77 @@
+/** ۹ گزارش پیش‌فرض منوی گزارشات — منبع seed برای report_modules */
+export const BUILTIN_REPORT_MODULES = [
+  {
+    menuId: 'control-room',
+    slug: 'control-room',
+    title: 'گزارش اتاق کنترل',
+    icon: 'monitor',
+    path: '/control-room',
+    sort_order: 1,
+  },
+  {
+    menuId: 'shiftreport',
+    slug: 'shift-report',
+    title: 'گزارش شیفت',
+    icon: 'clipboard',
+    path: '/shift-report',
+    sort_order: 2,
+  },
+  {
+    menuId: 'lab-report',
+    slug: 'lab-report',
+    title: 'گزارش آزمایشگاه',
+    icon: 'flask',
+    path: '/lab-report',
+    sort_order: 3,
+  },
+  {
+    menuId: 'scale-report',
+    slug: 'scale-report',
+    title: 'گزارش باسکول',
+    icon: 'scale',
+    path: '/scale-report',
+    sort_order: 4,
+  },
+  {
+    menuId: 'productionreport',
+    slug: 'production-report',
+    title: 'گزارش جامع تولید',
+    icon: 'factory',
+    path: '/production-report',
+    sort_order: 5,
+  },
+  {
+    menuId: 'warehouse-report',
+    slug: 'warehouse-report',
+    title: 'گزارش انبار',
+    icon: 'warehouse',
+    path: '/warehouse-report',
+    sort_order: 6,
+  },
+  {
+    menuId: 'hse-report',
+    slug: 'hse-report',
+    title: 'گزارش ایمنی و بهداشت',
+    icon: 'hardhat',
+    path: '/hse-report',
+    sort_order: 7,
+  },
+  {
+    menuId: 'reports',
+    slug: 'reports',
+    title: 'گزارش‌ساز پویا',
+    icon: 'piechart',
+    path: '/reports',
+    sort_order: 8,
+  },
+  {
+    menuId: 'list-report',
+    slug: 'list-report',
+    title: 'گزارش لیستی',
+    icon: 'spreadsheet',
+    path: '/list-report',
+    sort_order: 9,
+  },
+] as const;
+
+export type BuiltinReportModuleSeed = (typeof BUILTIN_REPORT_MODULES)[number];

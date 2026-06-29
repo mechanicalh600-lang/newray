@@ -13,7 +13,8 @@ export interface User {
   username: string;
   fullName: string;
   role: UserRole;
-  passwordHash: string; // Simulated
+  /** @deprecated Not stored client-side; auth is server-side only */
+  passwordHash?: string;
   isDefaultPassword?: boolean;
   avatar?: string;
   personnelCode?: string;
@@ -39,28 +40,98 @@ export interface SystemLog {
 }
 
 // --- Workflow Types ---
+
+export type WorkflowConditionOperator = 'eq' | 'neq' | 'contains' | 'in' | 'gt' | 'lt' | 'gte' | 'lte';
+
+/** شرط مسیریابی — اولین شرط برقرار، مسیر بعدی را تعیین می‌کند */
+export interface WorkflowConditionRule {
+  id: string;
+  field: string;
+  operator: WorkflowConditionOperator;
+  value: string;
+  nextStepId: string | 'FINISH';
+  /** تخصیص اختیاری در این شاخه */
+  assigneeRole?: UserRole | 'INITIATOR';
+  assigneeUserId?: string;
+  /** رنگ خط این شاخه */
+  lineColor?: string;
+}
+
 export interface WorkflowAction {
   id: string;
   label: string;
+  /** مسیر پیش‌فرض وقتی هیچ شرطی برقرار نباشد */
   nextStepId: string | 'FINISH';
   style: 'primary' | 'danger' | 'success' | 'neutral';
   requiredRole?: UserRole;
+  /** رنگ خط اتصال به مرحله بعد */
+  lineColor?: string;
+  /** شرط‌های مسیریابی — ارزیابی به ترتیب، اولین match */
+  conditions?: WorkflowConditionRule[];
+}
+
+export interface WorkflowStepLayout {
+  x: number;
+  y: number;
 }
 
 export interface WorkflowStep {
   id: string;
   title: string;
-  assigneeRole: UserRole | 'INITIATOR'; // Who should perform this step
+  /** کد وضعیت موجودیت (مثلاً IN_PROGRESS) — در جدول entity ذخیره می‌شود */
+  statusCode: string;
+  assigneeRole: UserRole | 'INITIATOR';
+  /** تخصیص به کاربر مشخص (اختیاری — اولویت بر نقش) */
+  assigneeUserId?: string;
+  /** گیرندگان (چند کاربر) */
+  recipientUserIds?: string[];
+  /** رونوشت (CC) */
+  ccUserIds?: string[];
+  /** موقعیت روی بوم طراحی */
+  layout?: WorkflowStepLayout;
+  /** استیت آغازین گردش کار */
+  isStart?: boolean;
+  /** استیت پایانی گردش کار */
+  isFinish?: boolean;
   description?: string;
   actions: WorkflowAction[];
 }
 
 export interface WorkflowDefinition {
   id: string;
-  module: string; // 'WORK_ORDER', 'PROJECT', etc.
+  module: string; // module_key e.g. WORK_ORDER
+  processModuleSlug?: string;
   title: string;
   steps: WorkflowStep[];
   isActive: boolean;
+  version?: number;
+  isPublished?: boolean;
+}
+
+export interface ProcessModule {
+  id: string;
+  slug: string;
+  module_key: string;
+  title: string;
+  icon: string;
+  entity_table: string;
+  entity_status_field: string;
+  form_route: string;
+  description: string;
+  sort_order: number;
+  is_builtin: boolean;
+  is_active: boolean;
+  active_workflow_id?: string | null;
+  condition_fields?: { key: string; label: string }[];
+  form_schema?: { tabs?: unknown[]; fields?: unknown[]; groups?: unknown[]; sections?: unknown[] };
+  list_schema?: { columns?: { key: string; label: string; visible?: boolean }[] };
+  use_dynamic_form?: boolean;
+  form_version?: number;
+  published_form_version?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CartableItem {

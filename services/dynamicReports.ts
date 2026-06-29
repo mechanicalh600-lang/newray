@@ -69,6 +69,20 @@ export const saveDynamicReportRecord = async (
   }
 };
 
+export const countReportRecordsByDefinitionId = async (definitionId: string): Promise<number> => {
+  if (!definitionId) return 0;
+  try {
+    const { count, error } = await supabase
+      .from('report_records')
+      .select('id', { count: 'exact', head: true })
+      .eq('definition_id', definitionId);
+    if (error) throw error;
+    return count ?? 0;
+  } catch {
+    return safeParse<DynamicReportRecord[]>(localStorage.getItem(localKey(definitionId)), []).length;
+  }
+};
+
 export const deleteDynamicReportRecords = async (definitionId: string, ids: string[]) => {
   try {
     const { error } = await supabase.from('report_records').delete().eq('definition_id', definitionId).in('id', ids);

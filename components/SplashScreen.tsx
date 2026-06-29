@@ -36,7 +36,7 @@ export const SplashScreen: React.FC = () => {
       
       {/* Background Decor */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-[20%] -right-[10%] w-[70vw] h-[70vw] rounded-full bg-[#800020]/5 blur-3xl animate-pulse"></div>
+          <div className="absolute -top-[20%] -right-[10%] w-[70vw] h-[70vw] rounded-full bg-primary/5 blur-3xl animate-pulse"></div>
           <div className="absolute top-[40%] -left-[10%] w-[50vw] h-[50vw] rounded-full bg-blue-500/5 blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
       </div>
 
@@ -111,7 +111,7 @@ export const SplashScreen: React.FC = () => {
 
         {/* Text Container */}
         <div className={`text-center transition-all duration-1000 transform ${showText ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-            <h1 className="text-4xl font-black text-[#800020] dark:text-red-400 mb-3 tracking-wide">
+            <h1 className="text-4xl font-black text-primary dark:text-primary-accent mb-3 tracking-wide">
                 رای‌نو
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 font-medium mb-10 tracking-widest">
@@ -122,7 +122,7 @@ export const SplashScreen: React.FC = () => {
         {/* Progress Bar */}
         <div className="w-48 h-1 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden relative">
             <div 
-                className="h-full bg-gradient-to-r from-[#800020] to-red-500 rounded-full transition-all duration-100 ease-linear shadow-[0_0_10px_rgba(128,0,32,0.5)]"
+                className="h-full bg-gradient-to-r from-primary to-primary-accent rounded-full transition-all duration-100 ease-linear shadow-[0_0_10px_rgb(var(--color-primary-rgb)/0.5)]"
                 style={{ width: `${progress}%` }}
             ></div>
         </div>

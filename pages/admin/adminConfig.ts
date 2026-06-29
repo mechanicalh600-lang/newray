@@ -27,7 +27,8 @@ export type EntityType =
   | 'checklist_items' 
   | 'maintenance_plans'
   | 'production_plans'
-  | 'work_order_status';
+  | 'work_order_status'
+  | 'equipment_runtime_hours';
 
 // ترتیب نمایش تب‌ها
 export const ORDERED_TABS: EntityType[] = [
@@ -42,6 +43,7 @@ export const ORDERED_TABS: EntityType[] = [
   'equipment_groups',
   'equipment',
   'equipment_local_names',
+  'equipment_runtime_hours',
   'production_plans',
   'evaluation_periods',
   'evaluation_criteria',
@@ -72,6 +74,7 @@ export const TABLE_LABELS: Record<EntityType, string> = {
   equipment_groups: 'گروه تجهیزات',
   equipment: 'تجهیزات',
   equipment_local_names: 'نام محلی تجهیزات',
+  equipment_runtime_hours: 'ساعت کارکرد تجهیزات',
   evaluation_periods: 'دوره‌های ارزیابی',
   evaluation_criteria: 'شاخص‌های ارزیابی',
   measurement_units: 'واحدهای اندازه‌گیری',
@@ -168,6 +171,15 @@ export const COLUMNS_MAP: Record<EntityType, any[]> = {
       { key: 'name', header: 'نام تجهیز' },
       { key: 'class_name', header: 'کلاس' },
       { key: 'group_name', header: 'گروه' },
+    ],
+    equipment_runtime_hours: [
+      { key: 'work_date', header: 'تاریخ' },
+      { key: 'work_time', header: 'ساعت' },
+      { key: 'equipment_code', header: 'کد تجهیز' },
+      { key: 'equipment_name', header: 'نام تجهیز' },
+      { key: 'equipment_local_name', header: 'نام محلی تجهیز' },
+      { key: 'runtime_hours', header: 'کارکرد (ساعت)' },
+      { key: 'source', header: 'منبع' },
     ],
     equipment_tree: [
        { key: 'equipment_name', header: 'تجهیز' },

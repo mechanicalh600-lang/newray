@@ -1,14 +1,14 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Menu, X, ChevronRight, ChevronUp, LogOut, User as UserIcon, Moon, Sun, PanelRightClose, PanelRightOpen, ChevronDown, Bell, CheckCircle, Clock, AlertTriangle, FileText, MessageSquare, ArrowRight } from 'lucide-react';
-import { MENU_ITEMS } from '../constants';
+import { MENU_ITEMS_CORE } from '../config/menuItemsCore';
 import { UserProvider } from '../contexts/UserContext';
 import { User, Note } from '../types';
-import { getUnreadMessageCount, getUnreadCartableCount } from '../workflowStore';
 import { supabase } from '../supabaseClient';
 import { compareShamsiDateTime, getShamsiDate, getTime, gregorianToJalali } from '../utils';
-import { getActiveReportDefinitions } from '../services/reportDefinitions';
+import { requestNoteNotificationPermission, triggerNoteReminderAlert, getNoteReminderPath } from '../utils/noteReminderAlert';
+import { normalizeNoteTags } from '../utils/normalizeNoteTags';
 import { ShamsiDatePicker } from './ShamsiDatePicker';
 import { ClockTimePicker } from './ClockTimePicker';
 import { Logo } from './Logo';
@@ -32,6 +32,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
   const [snoozeDate, setSnoozeDate] = useState('');
   const [snoozeTime, setSnoozeTime] = useState('');
   const [dynamicReportSubmenu, setDynamicReportSubmenu] = useState<any[]>([]);
+  const [baseInfoMenuItem, setBaseInfoMenuItem] = useState<any>(null);
   
   // Exit Confirmation State
   const [showExitModal, setShowExitModal] = useState(false);
@@ -40,58 +41,84 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
   const [announcementModal, setAnnouncementModal] = useState<{ message: string; settingsId: string; version: number } | null>(null);
 
   const navigate = useNavigate();
+  const alertedNoteIdsRef = useRef<Set<string>>(new Set());
+
+  // با ورود کاربر، یادآوری‌های از موعد گذشته دوباره هشدار بدهند
+  useEffect(() => {
+    alertedNoteIdsRef.current.clear();
+  }, [user?.id]);
 
   // درخواست مجوز نوتیفیکیشن مرورگر هنگام ورود کاربر
   useEffect(() => {
     if (!user) return;
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    void requestNoteNotificationPermission();
   }, [user]);
   const location = useLocation();
 
   const isLoginPage = location.pathname === '/login';
 
   useEffect(() => {
-    const loadDynamicReports = async () => {
-      const defs = await getActiveReportDefinitions();
-      const existingPaths = new Set(
-        MENU_ITEMS.flatMap((m: any) => (m.submenu || []).map((s: any) => s.path))
-      );
-      const items = defs
-        .filter(def => {
-          const p = (def.template_schema as any)?.modulePath;
-          return !p || !existingPaths.has('/' + String(p).replace(/^\/+/, ''));
-        })
-        .map(def => ({
-          id: `dyn-${def.slug}`,
-          title: def.title,
-          icon: FileText,
-          path: `/reports/${def.slug}`,
-        }));
+    if (!user || user.role !== 'ADMIN') {
+      setBaseInfoMenuItem(null);
+      return;
+    }
+    import('../config/adminMenu').then(m => setBaseInfoMenuItem(m.BASE_INFO_MENU_ITEM));
+  }, [user?.role, user?.id]);
+
+  useEffect(() => {
+    if (!user) {
+      setDynamicReportSubmenu([]);
+      return;
+    }
+
+    const loadReportSubmenu = async () => {
+      const { getActiveReportModulesForMenu } = await import('../services/reportModules');
+      const { resolveReportModuleIcon } = await import('../config/reportModuleIcons');
+      const { BUILTIN_REPORT_MODULES } = await import('../config/builtinReportModules');
+      const modules = await getActiveReportModulesForMenu();
+      const items = modules.map(m => ({
+        id:
+          BUILTIN_REPORT_MODULES.find(b => b.slug === m.slug)?.menuId ??
+          (m.is_builtin ? m.slug.replace(/-/g, '') : `mod-${m.id}`),
+        title: m.title,
+        icon: resolveReportModuleIcon(m.icon),
+        path: m.path,
+      }));
       setDynamicReportSubmenu(items);
     };
 
-    const handleReportDefsChanged = () => {
-      loadDynamicReports();
+    const handleChange = () => {
+      loadReportSubmenu();
     };
 
-    loadDynamicReports();
-    window.addEventListener('report-definitions-changed', handleReportDefsChanged as EventListener);
-    return () => window.removeEventListener('report-definitions-changed', handleReportDefsChanged as EventListener);
-  }, []);
+    loadReportSubmenu();
+    window.addEventListener('report-modules-changed', handleChange as EventListener);
+    window.addEventListener('report-definitions-changed', handleChange as EventListener);
+    return () => {
+      window.removeEventListener('report-modules-changed', handleChange as EventListener);
+      window.removeEventListener('report-definitions-changed', handleChange as EventListener);
+    };
+  }, [user?.id]);
 
   const menuItems = useMemo(() => {
-    return MENU_ITEMS.map(item => {
-      if (item.id !== 'reports-group' || !item.submenu) return item;
-      const existingPaths = new Set(item.submenu.map((sub: any) => sub.path));
-      const merged = [
-        ...item.submenu,
-        ...dynamicReportSubmenu.filter(sub => !existingPaths.has(sub.path)),
+    let source = MENU_ITEMS_CORE;
+    if (baseInfoMenuItem) {
+      const settingsIdx = source.findIndex(item => item.id === 'system-settings');
+      source = [
+        ...source.slice(0, settingsIdx),
+        baseInfoMenuItem,
+        ...source.slice(settingsIdx),
       ];
-      return { ...item, submenu: merged };
+    }
+
+    return source.map(item => {
+      if (item.id !== 'reports-group' || !item.submenu) return item;
+      if (dynamicReportSubmenu.length > 0) {
+        return { ...item, submenu: dynamicReportSubmenu };
+      }
+      return item;
     });
-  }, [dynamicReportSubmenu]);
+  }, [dynamicReportSubmenu, baseInfoMenuItem]);
 
   const flattenMenuByPath = (items: any[]): { path: string; title: string }[] => {
     const out: { path: string; title: string }[] = [];
@@ -157,58 +184,27 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
     }
   }, [location.pathname, menuItems]);
 
-  // Poll for unread messages/cartable and Check Reminders
+  // Poll for unread messages/cartable and Check Reminders (intervals kept moderate to avoid UI lag)
+  const unreadRef = useRef({ msg: 0, cart: 0 });
   useEffect(() => {
     if (!user) return;
 
     const checkUpdates = async () => {
+      const { getUnreadMessageCount, getUnreadCartableCount } = await import('../workflowStore');
+
       // 1. Messages
       const msgCount = await getUnreadMessageCount(user.id, user.role);
-      setUnreadCount(msgCount);
+      if (unreadRef.current.msg !== msgCount) {
+        unreadRef.current.msg = msgCount;
+        setUnreadCount(msgCount);
+      }
 
-      // 2. Cartable Items (New)
+      // 2. Cartable Items
       const cartCount = await getUnreadCartableCount(user.id, user.role);
-      setCartableUnreadCount(cartCount);
-
-      // 3. Reminder Check
-      checkReminders();
-    };
-
-    const playReminderBeep = async () => {
-        try {
-            const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-            if (!Ctx) return;
-            const audioContext = new Ctx();
-            if (audioContext.state === 'suspended') await audioContext.resume();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
-            oscillator.frequency.setValueAtTime(1100, audioContext.currentTime + 0.15);
-            oscillator.frequency.setValueAtTime(1320, audioContext.currentTime + 0.3);
-            gainNode.gain.setValueAtTime(0.35, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.5);
-        } catch {
-            try { new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU' + 'tv'.repeat(100)).play(); } catch { /* fallback silent */ }
-        }
-    };
-
-    const showReminderNotification = (note: any) => {
-        const title = note.title || 'یادآوری';
-        const body = (note.content || 'زمان انجام این کار فرا رسیده است.').slice(0, 100);
-        const dateStr = [note.reminder_date, note.reminder_time].filter(Boolean).join(' - ');
-        if ('Notification' in window && Notification.permission === 'granted') {
-            const n = new Notification('🔔 ' + title, {
-                body: dateStr ? `${body}\n⏰ ${dateStr}` : body,
-                icon: '/favicon.ico',
-                tag: 'note-' + note.id,
-                requireInteraction: true,
-            });
-            n.onclick = () => { window.focus(); n.close(); };
-        }
+      if (unreadRef.current.cart !== cartCount) {
+        unreadRef.current.cart = cartCount;
+        setCartableUnreadCount(cartCount);
+      }
     };
 
     const checkReminders = async () => {
@@ -226,48 +222,119 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
             const currentDate = getShamsiDate();
             const currentTime = getTime();
 
-            const dueNote = data.find((n: any) => {
+            const isNoteDue = (n: { reminder_dismissed?: boolean; reminder_date?: string; reminder_time?: string }) => {
                 if (n.reminder_dismissed === true) return false;
                 const rd = (n.reminder_date || '').trim();
                 const rt = (n.reminder_time || '00:00').trim();
                 if (!rd) return false;
-                const cmp = compareShamsiDateTime(rd, rt, currentDate, currentTime);
-                return cmp <= 0;
-            });
+                return compareShamsiDateTime(rd, rt, currentDate, currentTime) <= 0;
+            };
 
-            if (dueNote) {
-                const mapped: Note = {
-                    id: dueNote.id,
-                    userId: dueNote.user_id,
-                    title: dueNote.title,
-                    content: dueNote.content,
-                    tags: dueNote.tags || [],
-                    reminderDate: dueNote.reminder_date,
-                    reminderTime: dueNote.reminder_time,
-                    isCompleted: dueNote.is_completed,
-                    createdAt: dueNote.created_at,
-                    reminderSeen: false,
-                };
-                setActiveAlert(mapped);
-                playReminderBeep();
-                showReminderNotification(dueNote);
-                try { window.focus(); } catch { /* ignore */ }
-            }
+            const dueNotes = data
+                .filter(isNoteDue)
+                .sort((a, b) => {
+                    const rdA = (a.reminder_date || '').trim();
+                    const rtA = (a.reminder_time || '00:00').trim();
+                    const rdB = (b.reminder_date || '').trim();
+                    const rtB = (b.reminder_time || '00:00').trim();
+                    return compareShamsiDateTime(rdA, rtA, rdB, rtB);
+                });
+
+            const dueNote = dueNotes[0];
+            if (!dueNote) return;
+
+            const mapped: Note = {
+                id: dueNote.id,
+                userId: dueNote.user_id,
+                title: dueNote.title,
+                content: dueNote.content,
+                tags: normalizeNoteTags(dueNote.tags),
+                reminderDate: dueNote.reminder_date,
+                reminderTime: dueNote.reminder_time,
+                isCompleted: dueNote.is_completed,
+                createdAt: dueNote.created_at,
+                reminderSeen: false,
+            };
+
+            setActiveAlert(prev => (prev?.id === dueNote.id ? prev : mapped));
+
+            if (alertedNoteIdsRef.current.has(dueNote.id)) return;
+
+            alertedNoteIdsRef.current.add(dueNote.id);
+            const openNotes = () => navigate(getNoteReminderPath(dueNote.id));
+            await triggerNoteReminderAlert({
+                id: dueNote.id,
+                title: dueNote.title,
+                content: dueNote.content,
+                reminder_date: dueNote.reminder_date,
+                reminder_time: dueNote.reminder_time,
+            }, openNotes);
+            try { window.focus(); } catch { /* ignore */ }
         } catch (e) {
             console.error("Reminder check failed", e);
         }
     };
 
     checkUpdates();
-    checkReminders(); // بررسی فوری هنگام لود
-    const interval = setInterval(checkUpdates, 30000);
-    const reminderInterval = setInterval(checkReminders, 5000); // هر ۵ ثانیه
+    checkReminders();
+    let inboxInterval: ReturnType<typeof setInterval> | null = null;
+    let reminderInterval: ReturnType<typeof setInterval> | null = null;
+    const stopInboxPolling = () => {
+      if (inboxInterval) { clearInterval(inboxInterval); inboxInterval = null; }
+    };
+    const startInboxPolling = () => {
+      stopInboxPolling();
+      inboxInterval = setInterval(checkUpdates, 60000);
+    };
+    startInboxPolling();
+    reminderInterval = setInterval(checkReminders, 15000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkUpdates();
+        checkReminders();
+        startInboxPolling();
+      } else {
+        stopInboxPolling();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    const onOnline = () => { void checkReminders(); };
+    window.addEventListener('online', onOnline);
     const onNotesSaved = () => checkReminders();
     window.addEventListener('notes-reminder-saved', onNotesSaved);
+
+    const onCartableUnread = (e: Event) => {
+      const delta = (e as CustomEvent<{ delta?: number }>).detail?.delta;
+      if (typeof delta === 'number') {
+        const next = Math.max(0, unreadRef.current.cart + delta);
+        unreadRef.current.cart = next;
+        setCartableUnreadCount(next);
+        return;
+      }
+      void checkUpdates();
+    };
+    const onMessagesUnread = (e: Event) => {
+      const delta = (e as CustomEvent<{ delta?: number }>).detail?.delta;
+      if (typeof delta === 'number') {
+        const next = Math.max(0, unreadRef.current.msg + delta);
+        unreadRef.current.msg = next;
+        setUnreadCount(next);
+        return;
+      }
+      void checkUpdates();
+    };
+    window.addEventListener('cartable-unread-changed', onCartableUnread);
+    window.addEventListener('messages-unread-changed', onMessagesUnread);
+
     return () => {
-      clearInterval(interval);
-      clearInterval(reminderInterval);
+      stopInboxPolling();
+      if (reminderInterval) clearInterval(reminderInterval);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onOnline);
       window.removeEventListener('notes-reminder-saved', onNotesSaved);
+      window.removeEventListener('cartable-unread-changed', onCartableUnread);
+      window.removeEventListener('messages-unread-changed', onMessagesUnread);
     };
   }, [user]);
 
@@ -321,7 +388,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
           acknowledged_version: announcementModal.version,
           acknowledged_at: new Date().toISOString(),
         },
-        { onConflict: ['user_id', 'app_settings_id'] }
+        { onConflict: 'user_id,app_settings_id' }
       );
     } catch (e) {
       console.error('Announcement ack failed', e);
@@ -346,9 +413,22 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
       setActiveAlert(null);
   };
 
+  const openAlertNotes = () => {
+      if (!activeAlert) return;
+      navigate(getNoteReminderPath(activeAlert.id));
+  };
+
+  const alertIsPastDue = activeAlert && (() => {
+      const rd = (activeAlert.reminderDate || '').trim();
+      const rt = (activeAlert.reminderTime || '00:00').trim();
+      if (!rd) return false;
+      return compareShamsiDateTime(rd, rt, getShamsiDate(), getTime()) < 0;
+  })();
+
   const handleGotIt = async () => {
       if (!activeAlert) return;
       try {
+          alertedNoteIdsRef.current.delete(activeAlert.id);
           await supabase.from('personal_notes').update({ reminder_dismissed: true }).eq('id', activeAlert.id);
           setActiveAlert(null);
           setShowSnoozePicker(false);
@@ -363,6 +443,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
           return;
       }
       try {
+          alertedNoteIdsRef.current.delete(activeAlert.id);
           await supabase.from('personal_notes').update({ reminder_date: snoozeDate, reminder_time: snoozeTime, reminder_dismissed: false }).eq('id', activeAlert.id);
           setShowSnoozePicker(false);
           setActiveAlert(null);
@@ -381,6 +462,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
   const completeFromAlert = async () => {
       if (!activeAlert) return;
       try {
+          alertedNoteIdsRef.current.delete(activeAlert.id);
           await supabase.from('personal_notes').update({ is_completed: true }).eq('id', activeAlert.id);
           setActiveAlert(null);
           setShowSnoozePicker(false);
@@ -443,6 +525,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
   };
 
   const handleBack = () => {
+    if (location.pathname === '/report-design') {
+      window.dispatchEvent(new CustomEvent('report-design-back-to-list'));
+      return;
+    }
     // در صفحه طراحی فرم گزارش، بازگشت = برگشت به لیست رکوردها (همان صفحه)
     if (location.pathname === '/report-form-design') {
       window.dispatchEvent(new CustomEvent('report-form-design-back-to-list'));
@@ -538,6 +624,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
                                   </div>
                                   <div className="flex-1 min-w-0">
                                       <span className="text-amber-600 dark:text-amber-400 text-xs font-bold uppercase tracking-wider">یادآوری</span>
+                                      {alertIsPastDue && (
+                                          <p className="mt-1 text-xs font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded-lg px-2 py-1 w-fit">
+                                              از زمان یادآوری گذشته است — هنگام ورود به سیستم نمایش داده شد
+                                          </p>
+                                      )}
                                       <h4 className="font-black text-xl text-gray-900 dark:text-white mt-1 mb-2 leading-tight">{activeAlert.title}</h4>
                                       <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed mb-3 line-clamp-3">
                                           {activeAlert.content || 'زمان انجام این کار فرا رسیده است.'}
@@ -566,6 +657,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
                           </>
                       ) : (
                           <>
+                              <button
+                                onClick={openAlertNotes}
+                                className="w-full py-3 px-4 text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-800/50 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2"
+                              >
+                                  <FileText className="w-5 h-5" /> مشاهده در یادداشت‌های من
+                              </button>
                               <button 
                                 onClick={handleGotIt} 
                                 className="flex-1 py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold text-sm transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
@@ -645,7 +742,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
                 <div className="transition-transform duration-300 hover:scale-110 hover:rotate-12 cursor-default">
                   <Logo className="w-9 h-9 object-contain flex-shrink-0" />
                 </div>
-                <h2 className="text-xl font-bold text-primary dark:text-red-400 whitespace-nowrap">رای‌نو</h2>
+                <h2 className="text-xl font-bold text-primary dark:text-primary-accent whitespace-nowrap">رای‌نو</h2>
               </div>
             )}
             
@@ -729,7 +826,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
                       w-full flex items-center gap-3 py-3 transition-colors relative group
                       ${isCollapsed ? 'justify-center px-2' : 'px-6 text-right justify-between'}
                       ${(isActive || isParentActive)
-                        ? 'text-primary dark:text-red-400 bg-primary/5 dark:bg-primary/10' 
+                        ? 'text-primary dark:text-primary-accent bg-primary/5 dark:bg-primary/10' 
                         : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}
                     `}
                   >
@@ -784,7 +881,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
                                         }}
                                         className={`
                                           w-full flex items-center gap-3 py-2.5 px-6 pr-12 text-right transition-colors justify-between
-                                          ${isSubFolderActive ? 'text-primary dark:text-red-400' : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}
+                                          ${isSubFolderActive ? 'text-primary dark:text-primary-accent' : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}
                                         `}
                                       >
                                         <div className="flex items-center gap-3">
@@ -803,7 +900,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
                                                 onClick={() => { navigate(nested.path); setSidebarOpen(false); }}
                                                 className={`
                                                   w-full flex items-center gap-3 py-2 px-6 pr-8 text-right transition-colors
-                                                  ${isNestedActive ? 'text-primary dark:text-red-400 font-bold' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}
+                                                  ${isNestedActive ? 'text-primary dark:text-primary-accent font-bold' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}
                                                 `}
                                               >
                                                 <nested.icon className="w-3.5 h-3.5" />
@@ -824,7 +921,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
                                   className={`
                                     w-full flex items-center gap-3 py-2.5 px-6 pr-12 text-right transition-colors
                                     ${isSubActive 
-                                      ? 'text-primary dark:text-red-400 font-bold' 
+                                      ? 'text-primary dark:text-primary-accent font-bold' 
                                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}
                                   `}
                                 >
@@ -885,7 +982,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, darkMo
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto px-2 md:px-3 py-4 md:py-6 no-scrollbar pb-20 md:pb-6 relative">
+        <main className="flex-1 min-h-0 overflow-y-auto px-2 md:px-3 py-4 md:py-6 no-scrollbar pb-20 md:pb-6 relative">
           <UserProvider value={user}>{children}</UserProvider>
         </main>
       </div>

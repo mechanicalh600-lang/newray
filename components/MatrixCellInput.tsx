@@ -28,7 +28,7 @@ export const MatrixCellInput: React.FC<MatrixCellInputProps> = ({ row, col, fiel
     const promise = isCustomSql && src.type === 'custom_sql'
       ? fetchMatrixCellCustomSql(src.sql).then((s) => s)
       : isQuery && src.type === 'query'
-        ? fetchMatrixCellQuery(src.table, src.op || 'count', src.column).then((n) => String(n))
+        ? fetchMatrixCellQuery(src.table, src.op === 'sum' ? 'sum' : 'count', src.column).then((n) => String(n))
         : Promise.resolve('');
     promise
       .then((val) => {
@@ -42,7 +42,7 @@ export const MatrixCellInput: React.FC<MatrixCellInputProps> = ({ row, col, fiel
         });
       })
       .finally(() => setLoading(false));
-  }, [isFetchable, isQuery, isCustomSql, src?.table, src?.op, (src as any)?.sql, row, col, updateMatrix, rows]);
+  }, [isFetchable, isQuery, isCustomSql, src?.type === 'query' ? src.table : '', src?.type === 'query' ? src.op : '', src?.type === 'custom_sql' ? src.sql : '', row, col, updateMatrix, rows]);
   if (isFetchable) {
     const val = current?.[row]?.[col];
     return (

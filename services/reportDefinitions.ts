@@ -79,8 +79,8 @@ export interface ReportFieldSchema {
   tabId?: string;
   sectionId?: string;
   groupId?: string;
-  /** عرض: 1=۱/۴، 2=۱/۲، 3=۳/۴، 4=کامل */
-  width?: 1 | 2 | 3 | 4;
+  /** عرض: 1=۱/۴، 2=۱/۲، 3=۳/۴، 4=۱، 5=۱/۸، 6=۱/۶، 7=۳/۸، 8=۵/۸ */
+  width?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   helpText?: string;
   /** رنگ باکس یا فیلد (hex) */
   color?: string;
@@ -250,7 +250,11 @@ export interface ReportTabSchema {
     | 'box';
 }
 
+export type ReportFormRenderer = 'dynamic' | 'shift_preset';
+
 export interface ReportFormSchema {
+  /** موتور رندر: dynamic=فرم JSON عمومی | shift_preset=UI تخصصی شیفت */
+  renderer?: ReportFormRenderer;
   fields: ReportFieldSchema[];
   sections?: { id: string; title: string; fieldKeys: string[]; columns?: number }[];
   groups?: ReportFormGroup[];
@@ -334,12 +338,24 @@ const insertAudit = async (operation: 'INSERT' | 'UPDATE', recordId: string, old
   }
 };
 
+const DEFS_CACHE_MS = 90_000;
+let defsCache: { data: ReportDefinition[]; at: number } | null = null;
+
+const invalidateReportDefinitionsCache = () => {
+  defsCache = null;
+};
+
 const emitReportDefinitionsChanged = () => {
+  invalidateReportDefinitionsCache();
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('report-definitions-changed'));
 };
 
 export const getAllReportDefinitions = async (): Promise<ReportDefinition[]> => {
+  if (defsCache && Date.now() - defsCache.at < DEFS_CACHE_MS) {
+    return defsCache.data;
+  }
+
   try {
     const { data, error } = await supabase
       .from('report_definitions')
@@ -348,7 +364,10 @@ export const getAllReportDefinitions = async (): Promise<ReportDefinition[]> => 
     if (error) throw error;
     const fromDb = (data || []) as ReportDefinition[];
     const fallback = getFallbackDefs();
-    if (!fallback.length) return fromDb;
+    if (!fallback.length) {
+      defsCache = { data: fromDb, at: Date.now() };
+      return fromDb;
+    }
     // ادغام fallback با داده‌های Supabase: وقتی ذخیره در Supabase خطا داد ولی در localStorage ذخیره شد، نمایش داده شود
     const bySlug = new Map(fromDb.map(d => [d.slug, d]));
     for (const fb of fallback) {
@@ -359,11 +378,15 @@ export const getAllReportDefinitions = async (): Promise<ReportDefinition[]> => 
         bySlug.set(fb.slug, fb);
       }
     }
-    return Array.from(bySlug.values()).sort((a, b) =>
+    const merged = Array.from(bySlug.values()).sort((a, b) =>
       (b.updated_at || '').localeCompare(a.updated_at || '')
     );
+    defsCache = { data: merged, at: Date.now() };
+    return merged;
   } catch {
-    return getFallbackDefs();
+    const fallback = getFallbackDefs();
+    defsCache = { data: fallback, at: Date.now() };
+    return fallback;
   }
 };
 

@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { DynamicReportRuntime } from '../pages/DynamicReportRuntime';
+import React, { Suspense, useEffect, useState } from 'react';
 import { getReportDefinitionByModulePath } from '../services/reportDefinitions';
 import { User } from '../types';
+
+const DynamicReportRuntime = React.lazy(() => import('../pages/reports/DynamicReportRuntime'));
 
 interface Props {
   path: string;
@@ -30,7 +31,15 @@ export const ReportRouteResolver: React.FC<Props> = ({ path, FallbackComponent, 
   }
 
   if (linkedDef) {
-    return <DynamicReportRuntime user={user} slug={linkedDef.slug} initialDefinition={linkedDef} />;
+    return (
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-[200px]">
+          <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
+        </div>
+      }>
+        <DynamicReportRuntime user={user} slug={linkedDef.slug} initialDefinition={linkedDef} />
+      </Suspense>
+    );
   }
 
   return <FallbackComponent user={user} />;

@@ -1,6 +1,6 @@
 
 // Basic Service Worker to enable PWA installation criteria
-const CACHE_NAME = 'sabanour-cmms-v1';
+const CACHE_NAME = 'newray-cmms-v2';
 const urlsToCache = [
   './',
   './index.html',

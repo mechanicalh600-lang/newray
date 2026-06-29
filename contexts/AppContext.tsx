@@ -2,6 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { User } from '../types';
 import { getShamsiDate, getTime, getPublicIp } from '../utils';
 import { supabase } from '../supabaseClient';
+import { ColorThemeId } from '../config/colorThemes';
+import {
+  applyColorTheme,
+  loadStoredColorTheme,
+  preserveColorThemeKeys,
+  restoreColorThemeKeys,
+  saveColorTheme,
+} from '../utils/colorTheme';
 
 export interface AppContextValue {
   user: User | null;
@@ -9,6 +17,8 @@ export interface AppContextValue {
   setDarkMode: (v: boolean) => void;
   snowMode: boolean;
   setSnowMode: (v: boolean) => void;
+  colorThemeId: ColorThemeId;
+  setColorThemeId: (id: ColorThemeId) => void;
   showSplash: boolean;
   autoLogoutModal: { minutes: number } | null;
   setAutoLogoutModal: (v: { minutes: number } | null) => void;
@@ -34,7 +44,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
   const [darkMode, setDarkMode] = useState<boolean>(() => localStorage.getItem('theme') === 'dark');
   const [snowMode, setSnowMode] = useState<boolean>(() => localStorage.getItem('snowMode') === 'true');
+  const [colorThemeId, setColorThemeIdState] = useState<ColorThemeId>(() => {
+    try {
+      const saved = localStorage.getItem('currentUser');
+      const u = saved ? JSON.parse(saved) : null;
+      return loadStoredColorTheme(u?.id);
+    } catch {
+      return loadStoredColorTheme(null);
+    }
+  });
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setColorThemeId = useCallback((id: ColorThemeId) => {
+    setColorThemeIdState(id);
+    if (user?.id) saveColorTheme(user.id, id);
+    else applyColorTheme(id);
+  }, [user?.id]);
+
+  useEffect(() => {
+    applyColorTheme(colorThemeId);
+  }, [colorThemeId]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const stored = loadStoredColorTheme(user.id);
+    setColorThemeIdState(stored);
+    applyColorTheme(stored);
+  }, [user?.id]);
 
   const safeInsertSystemLog = useCallback(async (payload: Record<string, unknown>) => {
     try {
@@ -101,9 +137,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       const theme = localStorage.getItem('theme');
       const snow = localStorage.getItem('snowMode');
+      const colorThemes = preserveColorThemeKeys();
       localStorage.clear();
       if (theme) localStorage.setItem('theme', theme);
       if (snow) localStorage.setItem('snowMode', snow);
+      restoreColorThemeKeys(colorThemes);
     }
     setUser(null);
     if (isAuto) setAutoLogoutModal({ minutes: Math.round(inactivityLimit / 60000) });
@@ -126,7 +164,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [user, inactivityLimit, handleLogout]);
 
   useEffect(() => {
-    const t = setTimeout(() => setShowSplash(false), 6000);
+    const returningUser = !!localStorage.getItem('currentUser');
+    const delay = returningUser ? 1800 : 2800;
+    const t = setTimeout(() => setShowSplash(false), delay);
     return () => clearTimeout(t);
   }, []);
 
@@ -185,6 +225,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setDarkMode,
     snowMode,
     setSnowMode,
+    colorThemeId,
+    setColorThemeId,
     showSplash,
     autoLogoutModal,
     setAutoLogoutModal,

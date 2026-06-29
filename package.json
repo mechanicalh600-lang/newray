@@ -5,7 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "dev:local": "node scripts/local-api-server.mjs",
+    "dev:stack": "node scripts/dev-stack.mjs",
+    "db:check": "powershell -File scripts/check-db-schema.ps1",
+    "db:migrate": "powershell -File scripts/apply-all-migrations.ps1",
+    "db:migrate:process": "node scripts/run-migration-process-modules.mjs",
+    "db:migrate:process-form": "node scripts/run-migration-process-form-schema.mjs",
+    "db:hash-passwords": "node scripts/migrate-passwords.mjs",
+    "db:smoke": "node scripts/smoke-test-api.mjs",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
@@ -16,7 +25,9 @@
   "dependencies": {
     "@google/genai": "*",
     "@supabase/supabase-js": "^2.39.7",
+    "bcryptjs": "^3.0.3",
     "exceljs": "^4.4.0",
+    "html2pdf.js": "^0.10.1",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -25,6 +36,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@vitejs/plugin-react": "^4.2.1",
@@ -32,6 +44,7 @@
     "archiver": "^7.0.1",
     "autoprefixer": "^10.4.24",
     "gh-pages": "^6.1.1",
+    "pg": "^8.22.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.2.2",

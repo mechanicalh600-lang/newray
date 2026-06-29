@@ -149,6 +149,7 @@ import { ClockTimePicker } from './ClockTimePicker';
 import { ShamsiDatePicker } from './ShamsiDatePicker';
 import { ReportFieldSchema, ReportTabSchema, ReportFormGroup } from '../services/reportDefinitions';
 import { getPersianDayName } from '../utils';
+import { getFieldSpanStyle } from '../utils/formFieldWidth';
 import { MatrixCellInput } from './MatrixCellInput';
 
 interface Props {
@@ -505,7 +506,7 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                                   {field.type === 'text' || field.type === 'number' ? (
                                     <input
                                       type={field.type}
-                                      className={commonClass}
+                                      className={field.type === 'number' ? `${commonClass} input-number-rtl-center` : commonClass}
                                       value={current}
                                       onChange={e => {
                                         if (field.type === 'number') {
@@ -549,18 +550,18 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                   })}
                 </div>
                 {fieldsWithoutGroup.length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2 border-t border-gray-200 dark:border-gray-600">
+                  <div className="grid grid-cols-1 md:grid-cols-[repeat(24,minmax(0,1fr))] gap-4 pt-2 border-t border-gray-200 dark:border-gray-600">
                     {fieldsWithoutGroup.map(field => {
                       if (!shouldShowField(field, value)) return null;
                       const current = value[field.key] ?? field.defaultValue ?? (field.type === 'checkbox' ? false : '');
                       const commonClass = 'w-full p-2.5 border rounded-xl bg-white dark:bg-gray-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition';
-                      const w = field.width ?? (field.type === 'textarea' ? 4 : 2);
-                      const spanCls = w === 1 ? 'md:col-span-1' : w === 2 ? 'md:col-span-2' : w === 3 ? 'md:col-span-3' : 'md:col-span-4';
+                      const spanStyle = getFieldSpanStyle(field.width, field.type === 'textarea' ? 4 : 2);
                       const fieldId = field.id || field.key;
                       return (
                         <div
                           key={fieldId}
-                          className={`${spanCls} ${onFieldClick ? 'cursor-pointer rounded-lg -m-1 p-1 hover:bg-gray-100/50 dark:hover:bg-gray-700/30 transition-colors' : ''}`}
+                          style={spanStyle}
+                          className={onFieldClick ? 'cursor-pointer rounded-lg -m-1 p-1 hover:bg-gray-100/50 dark:hover:bg-gray-700/30 transition-colors' : ''}
                           onClick={onFieldClick ? () => onFieldClick(fieldId) : undefined}
                         >
                           <label className="block text-xs font-bold text-gray-500 mb-1.5">{field.label}{field.required ? <span className="text-red-500"> *</span> : ''}</label>
@@ -580,7 +581,7 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                           ) : (
                             <input
                               type={field.type || 'text'}
-                              className={commonClass}
+                              className={field.type === 'number' ? `${commonClass} input-number-rtl-center` : commonClass}
                               value={current}
                               onChange={e => {
                                 if (field.type === 'number') {
@@ -618,7 +619,7 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                 : sectionFields;
               const gridCls = isBasicInfoShift
                 ? 'grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end'
-                : 'grid grid-cols-1 md:grid-cols-4 gap-4';
+                : 'grid grid-cols-1 md:grid-cols-[repeat(24,minmax(0,1fr))] gap-4';
               const commonClass = 'w-full p-2.5 border rounded-xl bg-white dark:bg-gray-700 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition';
               const inputClass = isBasicInfoShift ? `${commonClass} h-11` : commonClass;
               return (
@@ -627,12 +628,13 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                 if (!shouldShowField(field, value)) return null;
                 const current = value[field.key] ?? field.defaultValue ?? (field.type === 'checkbox' ? false : '');
                 const fieldClass = (field.type === 'select' || field.type === 'text') && isBasicInfoShift ? inputClass : commonClass;
-                const w = field.width ?? (field.type === 'textarea' ? 4 : 2);
-                const spanCls = isBasicInfoShift ? (field.width === 2 || field.type === 'textarea' ? 'md:col-span-2' : '') : (w === 1 ? 'md:col-span-1' : w === 2 ? 'md:col-span-2' : w === 3 ? 'md:col-span-3' : 'md:col-span-4');
+                const spanStyle = isBasicInfoShift ? undefined : getFieldSpanStyle(field.width, field.type === 'textarea' ? 4 : 2);
+                const spanCls = isBasicInfoShift ? (field.width === 2 || field.type === 'textarea' ? 'md:col-span-2' : '') : '';
                 const fieldId = field.id || field.key;
                 return (
                   <div
                     key={fieldId}
+                    style={spanStyle}
                     className={`${spanCls} ${onFieldClick ? 'cursor-pointer rounded-lg -m-1 p-1 hover:bg-gray-100/50 dark:hover:bg-gray-700/30 transition-colors' : ''}`}
                     onClick={onFieldClick ? () => onFieldClick(fieldId) : undefined}
                   >
@@ -1086,7 +1088,7 @@ export const DynamicFormRenderer: React.FC<Props> = ({ fields, tabs = [], groups
                     ) : (
                       <input
                         type={field.type === 'number' ? 'number' : 'text'}
-                        className={fieldClass}
+                        className={field.type === 'number' ? `${fieldClass} input-number-rtl-center` : fieldClass}
                         placeholder={field.placeholder || ''}
                         value={current}
                         onChange={e => {

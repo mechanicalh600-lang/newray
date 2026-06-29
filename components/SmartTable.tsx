@@ -30,6 +30,8 @@ interface SmartTableProps<T> {
   columnVisibilityKey?: string;
   /** شناسه کاربر برای ذخیره در دیتابیس (اگر موجود باشد، ترجیحات در DB ذخیره می‌شود) */
   userId?: string | null;
+  /** مرتب‌سازی اولیه جدول (پیش‌فرض: اولین ستون نزولی) */
+  initialSort?: { key: string; direction: 'asc' | 'desc' };
   /** عرض پیش‌فرض ستون‌ها (key = sortKey) وقتی مقدار ذخیره‌شده وجود نداشته باشد */
   defaultColumnWidths?: Record<string, number>;
 }
@@ -52,7 +54,8 @@ export function SmartTable<T extends { id: string }>({
   filterContent,
   columnVisibilityKey,
   userId,
-  defaultColumnWidths = {}
+  defaultColumnWidths = {},
+  initialSort,
 }: SmartTableProps<T>) {
   
   const [filteredData, setFilteredData] = useState<T[]>(data);
@@ -194,6 +197,7 @@ export function SmartTable<T extends { id: string }>({
 
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(() => {
+      if (initialSort) return initialSort;
       const firstSortable = columns.find(c => c.sortKey);
       return firstSortable ? { key: firstSortable.sortKey as string, direction: 'desc' } : null;
   });
@@ -211,10 +215,7 @@ export function SmartTable<T extends { id: string }>({
           if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') return String(val);
           if (typeof val === 'object') return ''; // Skip objects for primitive contexts
           return String(val);
-      } catch (e) {
-          // #region agent log
-          try { fetch('http://127.0.0.1:7242/ingest/097c7630-12f5-40fb-a619-4417ec1884fe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'SmartTable.toSafeString', message: 'toSafeString threw', data: { err: String(e) }, timestamp: Date.now(), hypothesisId: 'H6-smarttable' }) }).catch(() => {}); } catch (_) {}
-          // #endregion
+      } catch {
           return '';
       }
   };
@@ -231,18 +232,12 @@ export function SmartTable<T extends { id: string }>({
               seen.add(obj);
               try {
                   return Object.values(obj).map(v => getDeepValues(v, seen)).join(' ');
-              } catch (e) {
-                  // #region agent log
-                  try { fetch('http://127.0.0.1:7242/ingest/097c7630-12f5-40fb-a619-4417ec1884fe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'SmartTable.getDeepValues', message: 'getDeepValues threw', data: { err: String(e) }, timestamp: Date.now(), hypothesisId: 'H6-smarttable' }) }).catch(() => {}); } catch (_) {}
-                  // #endregion
+              } catch {
                   return '';
               }
           }
           return '';
-      } catch (e) {
-          // #region agent log
-          try { fetch('http://127.0.0.1:7242/ingest/097c7630-12f5-40fb-a619-4417ec1884fe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'SmartTable.getDeepValues.outer', message: 'getDeepValues outer threw', data: { err: String(e) }, timestamp: Date.now(), hypothesisId: 'H6-smarttable' }) }).catch(() => {}); } catch (_) {}
-          // #endregion
+      } catch {
           return '';
       }
   };
@@ -536,7 +531,7 @@ export function SmartTable<T extends { id: string }>({
                           <col key={idx} style={{ width: getColWidth(col, idx) }} />
                       ))}
                   </colgroup>
-                  <thead className="reports-table-header text-gray-800 dark:text-gray-200 font-medium border-b-2 border-orange-300/60 dark:border-orange-600/50 shadow-sm" onContextMenu={handleHeaderContextMenu}>
+                  <thead className="reports-table-header text-gray-800 dark:text-gray-200 font-medium shadow-sm" onContextMenu={handleHeaderContextMenu}>
                       {/* Header Row 1: Titles & Controls */}
                       <tr className="cursor-context-menu" title="راست‌کلیک برای انتخاب ستون‌های قابل نمایش">
                           <th className="px-3 pt-3 pb-0.5 w-10 border-l border-gray-200 dark:border-gray-700/50 text-center">
@@ -600,7 +595,7 @@ export function SmartTable<T extends { id: string }>({
                                                         </div>
                                                         <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
                                                             {uniqueColumnValues[col.sortKey as string]?.map((val, vi) => (
-                                                                <label key={`${col.sortKey}-${vi}-${toSafeString(val)}`} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer text-xs">
+                                                                <label key={`${String(col.sortKey)}-${vi}-${toSafeString(val)}`} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer text-xs">
                                                                     <input 
                                                                         type="checkbox" 
                                                                         checked={colCheckboxFilters[col.sortKey as string]?.includes(toSafeString(val)) || false}

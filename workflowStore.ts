@@ -2,6 +2,18 @@
 import { WorkflowDefinition, CartableItem, User, UserRole, WorkflowHistory, Message, Attachment } from './types';
 import { generateId, getShamsiDate, getTime } from './utils';
 import { supabase } from './supabaseClient';
+import {
+  getAllWorkflowDefinitions,
+  saveWorkflowDefinition as saveWorkflowDefinitionDb,
+  seedDefaultWorkflowsIfEmpty,
+} from './services/workflowDefinitions';
+import { clearCartableItemReads, markCartableItemRead, fetchReadCartableIds } from './services/cartableReads';
+import {
+  startWorkflow as startWorkflowEngine,
+  processWorkflowAction as processWorkflowActionEngine,
+  getActionsForCartableItem,
+  getStepForCartableItem,
+} from './services/workflowEngine';
 
 // --- Local Storage Helpers ---
 const loadWorkflows = (): WorkflowDefinition[] => {
@@ -111,8 +123,20 @@ export const fetchUserMessages = async (userId: string, userRole: string): Promi
 
 export const getUnreadMessageCount = async (userId: string, userRole: string): Promise<number> => {
     try {
-        const { inbox } = await fetchUserMessages(userId, userRole);
-        return inbox.filter(m => !m.readBy.includes(userId)).length;
+        const orFilter = [
+            `and(receiver_type.eq.USER,receiver_id.eq.${userId})`,
+            'receiver_type.eq.ALL',
+            `and(receiver_type.eq.GROUP,receiver_id.eq.${userRole})`,
+        ].join(',');
+
+        const { count, error } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .or(orFilter)
+            .not('read_by', 'cs', `{${userId}}`);
+
+        if (error) throw error;
+        return count ?? 0;
     } catch (e) {
         return 0;
     }
@@ -366,173 +390,74 @@ export const fetchNextShiftCode = async (prefix: string): Promise<string> => {
     }
 };
 
-// --- Initialization Logic ---
-const initDefaultWorkflow = () => {
-    let workflows = loadWorkflows();
-    if (!workflows.find(w => w.module === 'WORK_ORDER')) {
-        const defaultWO: WorkflowDefinition = {
-            id: 'default-wo-flow',
-            module: 'WORK_ORDER',
-            title: 'فرآیند استاندارد تعمیرات',
-            isActive: true,
-            steps: [
-                {
-                    id: 'step-request',
-                    title: 'درخواست',
-                    assigneeRole: 'INITIATOR',
-                    description: 'ثبت درخواست توسط متقاضی',
-                    actions: [
-                        { id: 'act-submit', label: 'ارسال جهت انجام', nextStepId: 'step-inprogress', style: 'primary' }
-                    ]
-                },
-                {
-                    id: 'step-inprogress',
-                    title: 'در حال انجام',
-                    assigneeRole: UserRole.USER, 
-                    description: 'دستور کار در کارتابل مجری',
-                    actions: [
-                        { id: 'act-finish', label: 'اتمام کار و ارسال به تایید', nextStepId: 'step-verify', style: 'success' }
-                    ]
-                },
-                {
-                    id: 'step-verify',
-                    title: 'تایید',
-                    assigneeRole: UserRole.MANAGER, 
-                    description: 'بررسی کیفیت کار انجام شده',
-                    actions: [
-                        { id: 'act-approve', label: 'تایید نهایی', nextStepId: 'step-finish', style: 'success' },
-                        { id: 'act-reject', label: 'عدم تایید (بازگشت به اجرا)', nextStepId: 'step-inprogress', style: 'danger' }
-                    ]
-                },
-                {
-                    id: 'step-finish',
-                    title: 'اتمام',
-                    assigneeRole: UserRole.ADMIN,
-                    description: 'بایگانی درخواست',
-                    actions: [
-                        { id: 'act-close', label: 'بستن پرونده', nextStepId: 'FINISH', style: 'neutral' }
-                    ]
-                }
-            ]
-        };
-        workflows.push(defaultWO);
-        saveWorkflows(workflows);
-    }
+// --- Workflow Logic (DB-backed via services) ---
+
+let workflowsCache: WorkflowDefinition[] = [];
+let workflowsCachePromise: Promise<WorkflowDefinition[]> | null = null;
+
+export const refreshWorkflowsCache = async (): Promise<WorkflowDefinition[]> => {
+  if (!workflowsCachePromise) {
+    workflowsCachePromise = (async () => {
+      await seedDefaultWorkflowsIfEmpty();
+      workflowsCache = await getAllWorkflowDefinitions();
+      // sync legacy localStorage for offline fallback
+      saveWorkflows(workflowsCache);
+      return workflowsCache;
+    })().finally(() => {
+      workflowsCachePromise = null;
+    });
+  }
+  return workflowsCachePromise;
 };
 
-initDefaultWorkflow();
+if (typeof window !== 'undefined') {
+  void refreshWorkflowsCache();
+  window.addEventListener('workflow-definitions-changed', () => {
+    void refreshWorkflowsCache();
+  });
+}
 
-// --- Workflow Logic ---
-
-export const getWorkflows = () => loadWorkflows();
+export const getWorkflows = (): WorkflowDefinition[] =>
+  workflowsCache.length ? workflowsCache : loadWorkflows();
 
 export const saveWorkflowDefinition = (def: WorkflowDefinition) => {
+  // legacy sync API — prefer saveWorkflowDefinitionDb from services
   const workflows = loadWorkflows();
   const idx = workflows.findIndex(w => w.id === def.id);
-  if (idx >= 0) {
-    workflows[idx] = def;
-  } else {
-    workflows.push(def);
-  }
+  if (idx >= 0) workflows[idx] = def;
+  else workflows.push(def);
   saveWorkflows(workflows);
+  workflowsCache = workflows;
 };
 
-export const startWorkflow = (
+export { saveWorkflowDefinitionDb };
+export {
+  getActionsForCartableItem,
+  getStepForCartableItem,
+  postCartableComment,
+  referCartableItem,
+} from './services/workflowEngine';
+
+export const startWorkflow = async (
   module: string,
   data: any,
   user: User,
   trackingCode: string,
-  title: string
-): CartableItem | null => {
-  const workflows = loadWorkflows();
-  let workflow = workflows.find(w => w.module === module && w.isActive);
-  
-  if (!workflow) {
-      workflow = {
-          id: `dummy-${module}`,
-          module,
-          title: 'فرآیند پیش‌فرض',
-          isActive: true,
-          steps: [{ id: 'step-start', title: 'ثبت شده', assigneeRole: 'INITIATOR', actions: [] }]
-      };
-  }
-
-  const firstStep = workflow.steps[0];
-
-  const newItem: CartableItem = {
-    id: generateId(),
-    workflowId: workflow.id,
-    trackingCode,
-    module,
-    title,
-    description: `ایجاد شده توسط ${user.fullName}`,
-    currentStepId: firstStep.id,
-    initiatorId: user.id,
-    assigneeRole: (firstStep.assigneeRole as string) === 'INITIATOR' ? user.role : (firstStep.assigneeRole as UserRole),
-    status: 'PENDING',
-    createdAt: getShamsiDate(),
-    updatedAt: getShamsiDate(),
-    data: { ...data, status: 'REQUEST' } 
-  };
-
-  const items = loadCartable();
-  items.push(newItem);
-  saveCartable(items);
-  return newItem;
+  title: string,
+  entityId?: string
+): Promise<CartableItem | null> => {
+  await refreshWorkflowsCache();
+  return startWorkflowEngine(module, data, user, trackingCode, title, entityId);
 };
 
-export const processWorkflowAction = (
+export const processWorkflowAction = async (
   itemId: string,
   actionId: string,
   user: User,
   comment?: string
-) => {
-  const items = loadCartable();
-  const itemIndex = items.findIndex(i => i.id === itemId);
-  if (itemIndex === -1) return;
-
-  const item = items[itemIndex];
-  const workflows = loadWorkflows();
-  const workflow = workflows.find(w => w.id === item.workflowId);
-  if (!workflow) return;
-
-  const currentStep = workflow.steps.find(s => s.id === item.currentStepId);
-  if (!currentStep) return;
-
-  const action = currentStep.actions.find(a => a.id === actionId);
-  if (!action) return;
-
-  if (action.nextStepId === 'FINISH') {
-    item.status = 'DONE';
-    item.assigneeRole = UserRole.ADMIN; 
-    item.description = `پایان فرآیند توسط ${user.fullName}`;
-    if (item.data) item.data.status = 'FINISHED'; 
-  } else {
-    const nextStep = workflow.steps.find(s => s.id === action.nextStepId);
-    if (nextStep) {
-      item.currentStepId = nextStep.id;
-      
-      const nextRole = nextStep.assigneeRole;
-      if ((nextRole as string) === 'INITIATOR') {
-          item.assigneeRole = UserRole.USER;
-      } else {
-          item.assigneeRole = nextRole as UserRole;
-      }
-
-      item.updatedAt = getShamsiDate();
-      item.description = `ارجاع شده به ${nextStep.assigneeRole} توسط ${user.fullName}`;
-      
-      if (item.module === 'WORK_ORDER') {
-          if (nextStep.title === 'درخواست') item.data.status = 'REQUEST';
-          else if (nextStep.title === 'در حال انجام') item.data.status = 'IN_PROGRESS';
-          else if (nextStep.title === 'تایید') item.data.status = 'VERIFICATION';
-          else if (nextStep.title === 'اتمام') item.data.status = 'FINISHED';
-      }
-    }
-  }
-
-  items[itemIndex] = item;
-  saveCartable(items);
+): Promise<boolean> => {
+  await refreshWorkflowsCache();
+  return processWorkflowActionEngine(itemId, actionId, user, comment);
 };
 
 export const getMyCartable = (user: User): CartableItem[] => {
@@ -559,31 +484,29 @@ export const getItemsByModule = (module: string): CartableItem[] => {
 // --- Cartable Unread Logic (Fixed Logging) ---
 export const getUnreadCartableCount = async (userId: string, userRole: string): Promise<number> => {
     try {
+        const orFilter = [
+            `assignee_role.eq.${userRole}`,
+            `assignee_id.eq.${userId}`,
+            `and(assignee_role.eq.INITIATOR,initiator_id.eq.${userId})`,
+            'module.eq.WORK_ORDER',
+        ].join(',');
+
         const { data, error } = await supabase
             .from('cartable_items')
-            .select('module, assignee_role, initiator_id, assignee_id, data')
-            .eq('status', 'PENDING');
+            .select('id, data')
+            .eq('status', 'PENDING')
+            .or(orFilter);
 
         if (error) throw error;
 
-        const myItems = (data || []).filter((item: any) => {
-            let hasAccess = false;
-            if (item.module === 'WORK_ORDER') {
-                hasAccess = true;
-            } else {
-                const isMyRole = item.assignee_role === userRole;
-                const isMeInitiator = item.assignee_role === 'INITIATOR' && item.initiator_id === userId;
-                const isMeSpecific = item.assignee_id === userId;
-                hasAccess = isMyRole || isMeInitiator || isMeSpecific;
-            }
+        const rows = data || [];
+        const ids = rows.map((r: { id: string }) => r.id);
+        const readIds = await fetchReadCartableIds(userId, ids);
 
-            if (!hasAccess) return false;
-
-            const seenBy = item.data?.seen_by || [];
-            return !seenBy.includes(userId);
-        });
-
-        return myItems.length;
+        return rows.filter((item: { id: string; data?: { seen_by?: string[] } }) => {
+            const legacySeen = item.data?.seen_by || [];
+            return !readIds.has(item.id) && !legacySeen.includes(userId);
+        }).length;
     } catch (e: any) {
         // Suppress fetch/network errors during polling
         const msg = (e?.message || '').toLowerCase();
@@ -605,33 +528,20 @@ export const getUnreadCartableCount = async (userId: string, userRole: string): 
 };
 
 export const markCartableItemSeen = async (itemId: string, userId: string) => {
-    try {
-        const { data, error } = await supabase
-            .from('cartable_items')
-            .select('data')
-            .eq('id', itemId)
-            .single();
-        
-        if (error || !data) return;
-
-        const currentData = data.data || {};
-        const currentSeenBy = currentData.seen_by || [];
-
-        if (currentSeenBy.includes(userId)) return;
-
-        const newSeenBy = [...currentSeenBy, userId];
-        const newData = { ...currentData, seen_by: newSeenBy };
-
-        await supabase
-            .from('cartable_items')
-            .update({ data: newData })
-            .eq('id', itemId);
-            
-    } catch (e: any) {
-        const msg = (e?.message || '').toLowerCase();
-        const errStr = JSON.stringify(e).toLowerCase();
-        if (!msg.includes('failed to fetch') && !errStr.includes('failed to fetch')) {
-            console.error("Error marking item seen:", e?.message || e);
-        }
-    }
+    await markCartableItemRead(itemId, userId);
 };
+
+export const CARTABLE_UNREAD_CHANGED = 'cartable-unread-changed';
+export const MESSAGES_UNREAD_CHANGED = 'messages-unread-changed';
+
+export const notifyCartableUnreadChanged = (delta?: number) => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(CARTABLE_UNREAD_CHANGED, { detail: { delta } }));
+};
+
+export const notifyMessagesUnreadChanged = (delta?: number) => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent(MESSAGES_UNREAD_CHANGED, { detail: { delta } }));
+};
+
+export { fetchReadCartableIds, markCartableItemRead, clearCartableItemReads } from './services/cartableReads';

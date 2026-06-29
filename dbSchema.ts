@@ -9,6 +9,7 @@ create table if not exists app_settings (
   id uuid default gen_random_uuid() primary key,
   org_name text default 'شرکت توسعه معدنی و صنعتی صبانور',
   org_logo text,
+  login_background text,
   session_timeout_minutes integer default 5,
   maintenance_mode boolean default false,
   announcement_message text,
@@ -120,6 +121,24 @@ create table if not exists report_definitions (
   created_by text,
   updated_by text,
   created_at timestamptz default now()
+);
+
+-- ثبت ماژول‌های گزارش (صفحات گزارش — منوی گزارشات)
+create table if not exists report_modules (
+  id uuid default gen_random_uuid() primary key,
+  slug text unique not null,
+  title text not null,
+  icon text default 'filetext',
+  path text unique not null,
+  description text default '',
+  sort_order int default 500,
+  is_builtin boolean default false,
+  is_active boolean default true,
+  definition_slug text,
+  created_by text,
+  updated_by text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
 
 -- رکوردهای گزارشات داینامیک
@@ -255,6 +274,10 @@ create table if not exists technical_documents (
   type text,
   file_url text,
   description text,
+  status text default 'PENDING',
+  tracking_code text,
+  requester_id text,
+  requester_name text,
   created_at timestamptz default now()
 );
 
@@ -272,6 +295,7 @@ create table if not exists lab_reports (
   moisture_percent numeric,
   blaine numeric,
   mesh_size numeric,
+  full_data jsonb default '{}'::jsonb,
   operator_id uuid references app_users(id),
   created_at timestamptz default now()
 );
@@ -501,6 +525,15 @@ create table if not exists coding_formats (
 );
 create index if not exists ix_coding_formats_linked_to on coding_formats (linked_to);
 create index if not exists ix_coding_formats_sort on coding_formats (sort_order);
+
+-- خوانده‌شدن آیتم‌های کارتابل (هر کاربر جداگانه)
+create table if not exists cartable_item_reads (
+  id uuid default gen_random_uuid() primary key,
+  cartable_item_id uuid not null references cartable_items(id) on delete cascade,
+  user_id text not null,
+  read_at timestamptz default now(),
+  unique (cartable_item_id, user_id)
+);
 
 -- ==========================================
 -- 5. توابع تولید کد خودکار

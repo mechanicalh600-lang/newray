@@ -36,6 +36,6 @@ export async function saveUserColumnPreferences(
         page_key: pageKey,
         visible_column_keys: visibleKeys,
       },
-      { onConflict: ['user_id', 'page_key'] }
+      { onConflict: 'user_id,page_key' }
     );
 }

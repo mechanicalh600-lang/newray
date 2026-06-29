@@ -35,6 +35,8 @@ interface DataPageProps<T> {
   columnVisibilityKey?: string;
   /** شناسه کاربر برای ذخیره ترجیحات در دیتابیس (در لاگین بعدی همین ستون‌ها نمایش داده می‌شود) */
   userId?: string | null;
+  /** مرتب‌سازی اولیه جدول */
+  initialSort?: { key: string; direction: 'asc' | 'desc' };
   
   children?: React.ReactNode;
   containerClassName?: string;
@@ -63,6 +65,7 @@ export function DataPage<T extends { id: string }>({
   customRowActions,
   columnVisibilityKey = exportName,
   userId,
+  initialSort,
   children,
   containerClassName
 }: DataPageProps<T>) {
@@ -248,6 +251,7 @@ export function DataPage<T extends { id: string }>({
         customRowActions={customRowActions}
         columnVisibilityKey={columnVisibilityKey}
         userId={effectiveUserId}
+        initialSort={initialSort}
       />
     </div>
   );

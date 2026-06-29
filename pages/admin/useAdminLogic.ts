@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { fetchMasterData } from '../../workflowStore';
-import { EntityType, COLUMNS_MAP, MANDATORY_FIELDS } from './adminConfig';
+import { EntityType, COLUMNS_MAP, MANDATORY_FIELDS, TABLE_LABELS } from './adminConfig';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 
@@ -744,7 +744,7 @@ export const useAdminLogic = (activeTab: EntityType) => {
               const headerMap = getHeaderMapFromConfig(config);
               const rows: any[] = [];
               const errors: { rowNumber: number; message: string }[] = [];
-              const classesByName = new Map(
+              const classesByName = new Map<string, { id: string }>(
                 (lookupData.equipmentClasses || []).map((c: any) => [normalizeText(c.name), c])
               );
               const groupsByName = new Map<string, any[]>();
@@ -753,13 +753,13 @@ export const useAdminLogic = (activeTab: EntityType) => {
                 if (!groupsByName.has(key)) groupsByName.set(key, []);
                 groupsByName.get(key)!.push(g);
               }
-              const orgByName = new Map((lookupData.orgUnits || []).map((o: any) => [normalizeText(o.name), o]));
-              const unitByName = new Map((lookupData.measurementUnits || []).map((u: any) => [normalizeText(u.title), u]));
-              const categoryByName = new Map((lookupData.allCategories || []).map((c: any) => [normalizeText(c.name), c]));
-              const locationByName = new Map((lookupData.locations || []).map((l: any) => [normalizeText(l.name), l]));
-              const equipmentByName = new Map((lookupData.equipment || []).map((eq: any) => [normalizeText(eq.name), eq]));
-              const activityByName = new Map((lookupData.activityCards || []).map((a: any) => [normalizeText(a.name), a]));
-              const personnelByName = new Map((lookupData.personnel || []).map((p: any) => [normalizeText(p.full_name), p]));
+              const orgByName = new Map<string, { id: string }>((lookupData.orgUnits || []).map((o: any) => [normalizeText(o.name), o]));
+              const unitByName = new Map<string, { id: string }>((lookupData.measurementUnits || []).map((u: any) => [normalizeText(u.title), u]));
+              const categoryByName = new Map<string, { id: string }>((lookupData.allCategories || []).map((c: any) => [normalizeText(c.name), c]));
+              const locationByName = new Map<string, { id: string }>((lookupData.locations || []).map((l: any) => [normalizeText(l.name), l]));
+              const equipmentByName = new Map<string, { id: string }>((lookupData.equipment || []).map((eq: any) => [normalizeText(eq.name), eq]));
+              const activityByName = new Map<string, { id: string }>((lookupData.activityCards || []).map((a: any) => [normalizeText(a.name), a]));
+              const personnelByName = new Map<string, { id: string }>((lookupData.personnel || []).map((p: any) => [normalizeText(p.full_name), p]));
 
               for (let rowIndex = 0; rowIndex < jsonData.length; rowIndex += 1) {
                   const rowItem = jsonData[rowIndex];
@@ -839,7 +839,7 @@ export const useAdminLogic = (activeTab: EntityType) => {
                   });
                   
                   if (rowObj.class_name) {
-                      const found = classesByName.get(normalizeText(rowObj.class_name));
+                      const found = classesByName.get(normalizeText(rowObj.class_name)) as { id: string } | undefined;
                       if (found) rowObj.class_id = found.id;
                       else rowErrors.push(`کلاس تجهیز '${rowObj.class_name}' یافت نشد.`);
                       delete rowObj.class_name;
@@ -976,6 +976,135 @@ export const useAdminLogic = (activeTab: EntityType) => {
       const dataToExport = selectedIds.length > 0 
           ? data.filter(i => selectedIds.includes(i.id))
           : data;
+
+      // Specialized template: Equipment Runtime Hours
+      if (activeTab === 'equipment_runtime_hours') {
+        const workbook = new ExcelJS.Workbook();
+        const dataSheet = workbook.addWorksheet('data_input', { properties: { tabColor: { argb: 'FF1E40AF' } } });
+        const guideSheet = workbook.addWorksheet('guide', { properties: { tabColor: { argb: 'FF16A34A' } } });
+
+        dataSheet.columns = [
+          { header: 'Row Status ({0:No Change},{1: New},{2: Update})', key: 'operation', width: 32 },
+          { header: 'Work Date', key: 'work_date', width: 18 },
+          { header: 'Work Time', key: 'work_time', width: 16 },
+          { header: 'Equipment Code', key: 'equipment_code', width: 22 },
+          { header: 'Equipment Name', key: 'equipment_name', width: 30 },
+          { header: 'Equipment Local Name', key: 'equipment_local_name', width: 30 },
+          { header: 'Runtime Hours', key: 'runtime_hours', width: 18 },
+          { header: 'Source', key: 'source', width: 16 },
+          { header: '', key: '__empty_col', width: 6 },
+          { header: 'ID', key: 'id', width: 42 },
+        ];
+
+        const rows = (dataToExport.length > 0
+          ? dataToExport
+          : [{
+              work_date: '',
+              work_time: '',
+              equipment_code: '',
+              equipment_name: '',
+              equipment_local_name: '',
+              runtime_hours: '',
+              source: 'excel_import',
+              id: '',
+            }]
+        ).map((item: any) => ({
+          operation: 0,
+          work_date: item.work_date ?? '',
+          work_time: item.work_time ?? '',
+          equipment_code: item.equipment_code ?? '',
+          equipment_name: item.equipment_name ?? '',
+          equipment_local_name: item.equipment_local_name ?? '',
+          runtime_hours: item.runtime_hours ?? '',
+          source: item.source ?? 'excel_import',
+          __empty_col: '',
+          id: item.id ?? '',
+        }));
+
+        rows.forEach((r) => dataSheet.addRow(r));
+        dataSheet.getColumn('id').hidden = true;
+        dataSheet.autoFilter = { from: 'A1', to: 'J1' };
+        styleSheetCore(dataSheet);
+
+        // Helper sheet: equipment reference
+        const equipmentSheet = workbook.addWorksheet('equipment_ref', { properties: { tabColor: { argb: 'FF6B7280' } } });
+        equipmentSheet.columns = [
+          { header: 'Code', key: 'code', width: 18 },
+          { header: 'Name', key: 'name', width: 30 },
+          { header: 'Local Name', key: 'local_name', width: 28 },
+          { header: 'Class', key: 'class_name', width: 22 },
+          { header: 'Group', key: 'group_name', width: 22 },
+          { header: 'ID', key: 'id', width: 42 },
+        ];
+        try {
+          const equipments = await withRetry(() => fetchMasterData('equipment'), 1);
+          (Array.isArray(equipments) ? equipments : []).forEach((e: any) => {
+            equipmentSheet.addRow({
+              code: e.code ?? '',
+              name: e.name ?? '',
+              local_name: e.local_name ?? '',
+              class_name: e.class_name ?? '',
+              group_name: e.group_name ?? '',
+              id: e.id ?? '',
+            });
+          });
+        } catch {
+          // اگر داده‌ای نخواند، شیت خالی می‌ماند
+        }
+        equipmentSheet.autoFilter = { from: 'A1', to: 'F1' };
+        styleSheetCore(equipmentSheet);
+
+        // Helper sheet: equipment local names reference
+        const localSheet = workbook.addWorksheet('equipment_local_names_ref', { properties: { tabColor: { argb: 'FF0EA5E9' } } });
+        localSheet.columns = [
+          { header: 'Local Name', key: 'local_name', width: 28 },
+          { header: 'Equipment Code', key: 'equipment_code', width: 20 },
+          { header: 'Equipment Name', key: 'equipment_name', width: 30 },
+          { header: 'Class', key: 'class_name', width: 22 },
+          { header: 'Group', key: 'group_name', width: 22 },
+          { header: 'ID', key: 'id', width: 42 },
+        ];
+        try {
+          const locals = await withRetry(() => fetchMasterData('equipment_local_names'), 1);
+          (Array.isArray(locals) ? locals : []).forEach((r: any) => {
+            localSheet.addRow({
+              local_name: r.local_name ?? '',
+              equipment_code: r.equipment_code ?? '',
+              equipment_name: r.equipment_name ?? '',
+              class_name: r.class_name ?? '',
+              group_name: r.group_name ?? '',
+              id: r.id ?? '',
+            });
+          });
+        } catch {
+          // ignore
+        }
+        localSheet.autoFilter = { from: 'A1', to: 'F1' };
+        styleSheetCore(localSheet);
+
+        guideSheet.columns = [{ header: 'Guide', key: 'guide', width: 96 }];
+        [
+          'راهنمای فایل «ساعت کارکرد تجهیزات»',
+          'ستون 1: Row Status ({0:No Change},{1: New},{2: Update})',
+          '0 = بدون تغییر (ردیف نادیده گرفته می‌شود)',
+          '1 = رکورد جدید (نیازی به ID نیست)',
+          '2 = ویرایش رکورد موجود (ID الزامی است)',
+          'ستون 2: Work Date — تاریخ کارکرد به فرمت 1403/01/01',
+          'ستون 3: Work Time — ساعت کارکرد به فرمت 08:15',
+          'ستون 4: Equipment Code — کد تجهیز مطابق سیستم نت (در صورت نیاز با VLOOKUP از شیت equipment_ref پر کنید)',
+          'ستون 5: Equipment Name — نام تجهیز (اختیاری، می‌توانید از شیت equipment_ref استفاده کنید)',
+          'ستون 6: Equipment Local Name — نام محلی تجهیز (اختیاری، می‌توانید از شیت equipment_local_names_ref استفاده کنید)',
+          'ستون 7: Runtime Hours — مجموع کارکرد تجهیز در آن تاریخ (بر حسب ساعت، می‌تواند اعشاری باشد)',
+          'ستون 8: Source — منبع داده (مثلاً excel_import یا manual)',
+          'برای ارتباط بین این فایل و جداول مرجع، می‌توانید از VLOOKUP بین ستون‌های Code/Local Name با شیت‌های equipment_ref و equipment_local_names_ref استفاده کنید.',
+          'ستون 10: ID — فقط برای ویرایش رکوردهای موجود استفاده می‌شود (در ورود اولیه خالی بگذارید).',
+        ].forEach((line) => guideSheet.addRow({ guide: line }));
+        styleSheetCore(guideSheet);
+
+        const dateStr = new Date().toISOString().slice(0, 10);
+        await triggerWorkbookDownload(workbook, `export_${activeTab}_${dateStr}.xlsx`);
+        return;
+      }
 
       if (activeTab === 'user_groups') {
         const workbook = new ExcelJS.Workbook();
@@ -1464,7 +1593,10 @@ export const useAdminLogic = (activeTab: EntityType) => {
 
       for (let i = 0; i < insertRows.length; i += batchSize) {
         const batch = insertRows.slice(i, i + batchSize);
-        const { error } = await withRetry(() => supabase.from(tableName).insert(batch), 2);
+        const { error } = await withRetry(async () => {
+          const result = await supabase.from(tableName).insert(batch);
+          return result;
+        }, 2);
         if (error) throw error;
         inserted += batch.length;
         setImportProgress({ processed: inserted + updated, total: actionableRows.length });
@@ -1484,10 +1616,13 @@ export const useAdminLogic = (activeTab: EntityType) => {
         const batch = updateRows.slice(i, i + updateBatchSize);
         const results = await Promise.all(
           batch.map((item) =>
-            withRetry(() => supabase.from(tableName).update(item.payload).eq('id', item.id), 2)
+            withRetry(async () => {
+              const result = await supabase.from(tableName).update(item.payload).eq('id', item.id);
+              return result;
+            }, 2)
           )
         );
-        const firstError = results.find((r: any) => r?.error)?.error;
+        const firstError = results.find((r) => r.error)?.error;
         if (firstError) throw firstError;
         updated += batch.length;
         setImportProgress({ processed: inserted + updated, total: actionableRows.length });

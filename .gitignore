@@ -1,5 +1,8 @@
-# Local font files omitted; app uses Google Fonts (Vazirmatn)
+# Local font files — bundled for internal/offline deploy (see public/fonts/)
 # public/fonts/*.woff2
+
+# Cursor IDE (local only)
+.cursor/
 
 # Logs
 logs
@@ -78,6 +81,11 @@ typings/
 .env.test
 .env.production
 .env.liara
+
+# Local dev (offline DB)
+local-storage/
+local-api/postgrest.exe
+local-api/postgrest.zip
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

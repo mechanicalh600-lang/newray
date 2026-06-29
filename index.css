@@ -2,12 +2,119 @@
 @tailwind components;
 @tailwind utilities;
 
-/* فونت Vazirmatn از Google Fonts بارگذاری می‌شود (index.html) */
+/* فونت محلی — بدون وابستگی به اینترنت (شبکه داخلی کارخانه) */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Vazirmatn-wght.woff2') format('woff2');
+}
 
 body {
   font-family: 'Vazirmatn', 'Vazir', 'Tahoma', 'Arial', sans-serif;
   direction: rtl;
   overscroll-behavior-y: none;
+}
+
+/* تم رنگی — پیش‌فرض سازمانی */
+:root {
+  --color-primary-rgb: 128 0 32;
+  --color-primary-hover-rgb: 153 27 27;
+  --color-primary-accent-rgb: 251 113 133;
+  --color-primary-mid-rgb: 190 24 72;
+  --theme-header-l1-rgb: 255 220 228;
+  --theme-header-l2-rgb: 255 200 210;
+  --theme-header-l3-rgb: 255 180 195;
+  --theme-header-d1-rgb: 80 20 35;
+  --theme-header-d2-rgb: 65 15 28;
+  --theme-header-d3-rgb: 45 35 90;
+  --theme-pattern-header: none;
+  --theme-pattern-accent: none;
+  --theme-pattern-soft: none;
+}
+
+/* دکمه‌های primary — hover یکپارچه با تم */
+.hover-primary-dark:hover {
+  background-color: rgb(var(--color-primary-hover-rgb)) !important;
+}
+
+.theme-gradient-br {
+  background-image:
+    var(--theme-pattern-accent),
+    radial-gradient(circle at 88% 12%, rgb(255 255 255 / 0.15) 0, transparent 32%),
+    linear-gradient(
+      135deg,
+      rgb(var(--color-primary-rgb)),
+      rgb(var(--color-primary-mid-rgb)),
+      rgb(var(--color-primary-hover-rgb)),
+      rgb(var(--color-primary-accent-rgb) / 0.85)
+    );
+  background-size: 240px 180px, cover, cover;
+  background-position: center, center, center;
+  background-blend-mode: soft-light, normal, normal;
+}
+
+.theme-gradient-header {
+  background-image:
+    var(--theme-pattern-accent),
+    radial-gradient(circle at 20% 30%, rgb(255 255 255 / 0.12) 0, transparent 35%),
+    linear-gradient(
+      135deg,
+      rgb(var(--color-primary-rgb)),
+      rgb(var(--color-primary-mid-rgb)),
+      rgb(var(--color-primary-accent-rgb) / 0.8)
+    );
+  background-size: 200px 140px, cover, cover;
+  background-blend-mode: soft-light, normal, normal;
+}
+
+.theme-geometric-soft {
+  background-image:
+    var(--theme-pattern-soft),
+    radial-gradient(circle at 92% 8%, rgb(var(--color-primary-accent-rgb) / 0.1) 0, transparent 45%);
+  background-size: 180px 130px, cover;
+  background-position: center, center;
+  background-blend-mode: soft-light, normal;
+}
+
+.theme-focus-ring:focus {
+  --tw-ring-color: rgb(var(--color-primary-rgb) / 0.5);
+}
+
+/* سازگاری با hover قدیمی red-800 روی دکمه‌های primary */
+.bg-primary.hover\:bg-red-800:hover {
+  background-color: rgb(var(--color-primary-hover-rgb)) !important;
+}
+
+/* گزارش شیفت، گزارش آزمایشگاه، گزارش جامع تولید — فونت یکسان */
+.report-form {
+  font-family: 'Vazirmatn', 'Vazir', 'Tahoma', 'Arial', sans-serif;
+}
+
+/* اینپوت عددی در صفحه RTL: دکمه‌های کم/زیاد در سمت چپ فیلد، متن وسط‌چین */
+input.input-number-rtl-center[type="number"] {
+  direction: rtl !important; /* فلش‌ها در RTL در سمت چپ فیلد قرار می‌گیرند */
+  text-align: center !important;
+}
+input.input-number-rtl-center[type="number"]:focus,
+input.input-number-rtl-center[type="number"]:focus-visible,
+input.input-number-rtl-center[type="number"]:active {
+  text-align: center !important;
+}
+input.input-number-rtl-center[type="number"]::placeholder {
+  text-align: center !important;
+}
+
+/* گزارش آزمایشگاه — اینپوت عددی بدون فلش کم/زیاد */
+.lab-report-number[type="number"]::-webkit-inner-spin-button,
+.lab-report-number[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.lab-report-number[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -19,29 +126,36 @@ body {
   scrollbar-width: none;
 }
 
-/* هدر جدول گزارش‌ها با بک‌گراند گرافیکی کهکشان + تصویر + دایره‌های ریز */
+/* هدر جدول گزارش‌ها — گرadiant + الگوی SVG اختصاصی هر تم */
 .reports-table-header {
-  background-image: 
-    radial-gradient(circle at 10% 20%, rgba(249,115,22,0.25) 0%, transparent 1px),
-    radial-gradient(circle at 85% 15%, rgba(251,191,36,0.2) 0%, transparent 1.2px),
-    radial-gradient(circle at 30% 80%, rgba(245,158,11,0.2) 0%, transparent 0.8px),
-    radial-gradient(circle at 70% 60%, rgba(249,115,22,0.22) 0%, transparent 1.5px),
-    radial-gradient(circle at 50% 40%, rgba(251,191,36,0.18) 0%, transparent 1px),
-    linear-gradient(135deg, rgba(254,215,170,0.68) 0%, rgba(251,191,36,0.58) 25%, rgba(249,115,22,0.65) 50%, rgba(251,191,36,0.58) 75%, rgba(254,215,170,0.68) 100%),
-    url(https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1920);
-  background-size: 120px 80px, 95px 110px, 140px 70px, 88px 95px, 130px 100px, cover, cover;
-  background-position: 0 0, 23px 11px, 45px 33px, 12px 67px, 67px 22px, center, center;
-  background-blend-mode: overlay, overlay, overlay, overlay, overlay, overlay, normal;
+  border-bottom: 2px solid rgb(var(--color-primary-rgb) / 0.42) !important;
+  background-image:
+    var(--theme-pattern-header),
+    linear-gradient(
+      135deg,
+      rgb(var(--theme-header-l1-rgb) / 0.88) 0%,
+      rgb(var(--theme-header-l2-rgb) / 0.72) 28%,
+      rgb(var(--theme-header-l3-rgb) / 0.78) 50%,
+      rgb(var(--theme-header-l2-rgb) / 0.72) 72%,
+      rgb(var(--theme-header-l1-rgb) / 0.88) 100%
+    );
+  background-size: 320px 220px, cover;
+  background-position: center, center;
+  background-blend-mode: soft-light, normal;
 }
 .dark .reports-table-header {
-  background-image: 
-    radial-gradient(circle at 15% 25%, rgba(251,146,60,0.3) 0%, transparent 1.2px),
-    radial-gradient(circle at 80% 10%, rgba(245,158,11,0.25) 0%, transparent 1px),
-    radial-gradient(circle at 25% 75%, rgba(249,115,22,0.28) 0%, transparent 0.9px),
-    radial-gradient(circle at 65% 55%, rgba(251,191,36,0.22) 0%, transparent 1.3px),
-    linear-gradient(135deg, rgba(124,45,18,0.7) 0%, rgba(154,52,18,0.6) 25%, rgba(194,65,12,0.65) 50%, rgba(154,52,18,0.6) 75%, rgba(124,45,18,0.7) 100%),
-    url(https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=1920);
-  background-size: 115px 85px, 100px 105px, 135px 75px, 92px 90px, cover, cover;
-  background-position: 5px 8px, 30px 15px, 50px 40px, 18px 60px, center, center;
-  background-blend-mode: overlay, overlay, overlay, overlay, overlay, normal;
+  border-bottom-color: rgb(var(--color-primary-accent-rgb) / 0.38) !important;
+  background-image:
+    var(--theme-pattern-header),
+    linear-gradient(
+      135deg,
+      rgb(var(--theme-header-d1-rgb) / 0.92) 0%,
+      rgb(var(--theme-header-d2-rgb) / 0.78) 28%,
+      rgb(var(--theme-header-d3-rgb) / 0.84) 50%,
+      rgb(var(--theme-header-d2-rgb) / 0.78) 72%,
+      rgb(var(--theme-header-d1-rgb) / 0.92) 100%
+    );
+  background-size: 320px 220px, cover;
+  background-position: center, center;
+  background-blend-mode: soft-light, normal;
 }
